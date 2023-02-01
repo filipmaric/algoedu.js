@@ -1,0 +1,179 @@
+<!doctype html>
+<html>
+  <head>
+    <title>DFS</title>
+    <meta charset="utf-8" />
+    <style>
+      canvas {
+          border: 1px solid black;
+          user-select: none;
+          margin-left: auto;
+          margin-right: auto;
+      }
+      body {
+          margin-left: auto;
+          margin-right: auto;
+          width: 800px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Обилазак графа у дубину</h1>
+    <canvas id="graph" width="400" height="400">
+    </canvas>
+    <p>
+      Проверите своје разумевање обиласка графа у дубину (DFS) тако
+      што ћете означити редослед којим се обилазе чворови, кренувши од
+      чвора нула. Чворове означавате редом, дуплим кликом. Последњи
+      означени чвор можете поништити дуплим кликом.
+    </p>
+    <p>
+      <button id="btnDFSCheck">Провери</button>
+    </p>
+
+    <div>
+      <h1>Приказ решења</h2>
+    <p>
+      <button id="btnDFSPrev">Претходни корак у DFS обиласку</button>
+      <button id="btnDFSNext">Следећи корак у DFS обиласку</button>
+    </p>
+    </p>
+      <button id="btnDFSAnimate">Прикажи анимацију DFS обиласка</button>
+    </p>
+    <p>
+      <button id="btnDFSReset">Поништи све</button>
+    </p>
+
+    <p>
+      <button id="btnDFSTree">Прикажи DFS дрво</button>
+    </p>
+    </div>
+
+    <script src="../dist/Graph.js"></script>
+    <script>
+      const canvas = document.getElementById("graph");
+      const graph = new Graph.Graph(8, false);
+      graph.randomGraph();
+      const graphDrawing = new Graph.GraphDrawing(graph, canvas);
+      const w = graphDrawing.canvas.width(), h = graphDrawing.canvas.height();
+      k = 0.1
+      graphDrawing.circularArrangement(w/2, h/2, 0.8*Math.min(w/2, h/2));
+      graphDrawing.showFocusVertex();
+      graphDrawing.showFocusEdge();
+      graphDrawing.dragFocusVertex();
+      graphDrawing.orderVerticesDblClick();
+      graphDrawing.draw();
+      
+      var CSS = {
+          activeEdge: {
+              width: 4,
+              color: "blue"
+          },
+      
+          treeEdge: {
+              width: 2,
+              color: "blue"
+          },
+
+          visitedVertex: {
+              color: "#DDDDFF"
+          },
+
+          activeVertex: {
+              color: "blue"
+          },
+
+          returnVertex: {
+              color: "#9999FF"
+          },
+      };
+
+      function dfsVisualization(dfsTrace, numVertices) {
+          if (dfsTrace.length == 0)
+              return;
+          let [va, vb] = dfsTrace[0];
+          let activeVertex = va;
+          let activeEdge = undefined;
+          let dfsOrder = 0;
+          const commands = [[new Graph.CommandSetVertexCSS(graphDrawing, activeVertex, CSS.activeVertex),
+                             new Graph.CommandSetVertexLabel(graphDrawing, activeVertex, dfsOrder++)
+                            ]];
+          for (let i = 0; i < dfsTrace.length; i++) {
+              const stepCommands = [];
+              stepCommands.push(new Graph.CommandSetVertexCSS(graphDrawing, activeVertex, CSS.visitedVertex));
+              if (activeEdge)
+                  stepCommands.push(new Graph.CommandSetEdgeCSS(graphDrawing, activeEdge, CSS.treeEdge));
+              if (dfsTrace[i].length == 2) {
+                  activeEdge = dfsTrace[i];
+                  let [va, vb] = activeEdge;
+                  activeVertex = vb;
+                  stepCommands.push(new Graph.CommandSetVertexCSS(graphDrawing, activeVertex, CSS.activeVertex));
+                  if (activeEdge)
+                      stepCommands.push(new Graph.CommandSetEdgeCSS(graphDrawing, activeEdge, CSS.activeEdge));
+                  stepCommands.push(new Graph.CommandSetVertexLabel(graphDrawing, activeVertex, dfsOrder++));
+              } else if (dfsTrace[i].length == 1) {
+                  var [vertex] = dfsTrace[i];
+                  activeVertex = vertex;
+                  stepCommands.push(new Graph.CommandSetVertexCSS(graphDrawing, activeVertex, CSS.returnVertex));
+              }
+              commands.push(stepCommands);
+          }
+          commands.push([new Graph.CommandSetEdgeCSS(graphDrawing, activeEdge, CSS.treeEdge), 
+                         new Graph.CommandSetVertexCSS(graphDrawing, activeVertex, CSS.visitedVertex)]);
+          return new Graph.GraphCommands(commands);
+      }
+      
+      const commands = dfsVisualization(graph.dfs(0), graph.numVertices());
+
+      const btnDFSTree = document.getElementById("btnDFSTree");
+      btnDFSTree.addEventListener("click", function() {
+          // execute DFS algorithm
+          var dfsTreeEdges = graph.dfs(0).filter(item => item.length == 2);
+          // arrange vertices
+          graphDrawing.treeArrangement(dfsTreeEdges, w, h);
+      });
+
+      const btnDFSNext = document.getElementById("btnDFSNext");
+      btnDFSNext.addEventListener("click", function() {
+          commands.next();
+      });
+
+      const btnDFSPrev = document.getElementById("btnDFSPrev");
+      btnDFSPrev.addEventListener("click", function() {
+          commands.previous();
+      });
+
+      let timer = null;
+      const btnDFSAnimate = document.getElementById("btnDFSAnimate");
+      btnDFSAnimate.addEventListener("click", function() {
+          timer = setInterval(function() {
+              if (!commands.done())
+                  commands.next();
+          }, 2000);
+      });
+
+      var btnDFSCheck = document.getElementById("btnDFSCheck");
+      btnDFSCheck.addEventListener("click", function() {
+          const treeEdges = graph.dfs(0).filter(item => item.length == 2);
+          let correctDFSOrder = treeEdges.map(edge => edge[1]);
+          correctDFSOrder.unshift(treeEdges[0][0]);
+          const givenDFSOrder = graphDrawing.vertexOrderByLabel();
+          // compare arrays by converting them to strings
+          if (JSON.stringify(correctDFSOrder) == JSON.stringify(givenDFSOrder))
+              alert("Тачно");
+          else
+              alert("Нетачно");
+      });
+
+      var btnDFSReset = document.getElementById("btnDFSReset");
+      btnDFSReset.addEventListener("click", function() {
+          if (timer != null) {
+              clearInterval(timer);
+              timer = null;
+          }
+          commands.reset();
+          graphDrawing.removeAllVertexLabels();
+      });
+    </script>
+  </body>
+</html>

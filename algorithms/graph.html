@@ -1,0 +1,139 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Примов алгоритам</title>
+    <meta charset="utf-8" />
+    <style>
+      canvas {
+          border: 1px solid black;
+          user-select: none;
+          margin-left: auto;
+          margin-right: auto;
+      }
+      body {
+          margin-left: auto;
+          margin-right: auto;
+          width: 800px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Примов алгоритам</h1>
+    <canvas id="graph" width="400" height="400">
+    </canvas>
+    <p>
+      Проверите своје разумевање Примовог алгоритма тако што ћете
+      означити редослед којим се чворови уврштавају у дрво, кренувши
+      од чвора нула. Чворове означавате редом, дуплим кликом. Последњи
+      означени чвор можете поништити дуплим кликом. Ако су два чвора
+      на истом растојању од дрвета, бира се увек онај са мањим бројем.
+    </p>
+    <p>
+      <button id="btnCheck">Провери</button>
+    </p>
+
+    <div>
+      <h1>Приказ решења</h2>
+    <p>
+      <button id="btnPrev">Претходни корак</button>
+      <button id="btnNext">Следећи корак</button>
+    </p>
+    </p>
+      <button id="btnAnimate">Прикажи анимацију</button>
+    </p>
+    <p>
+      <button id="btnReset">Поништи све</button>
+    </p>
+    </div>
+
+    <script src="../dist/Graph.js"></script>
+    <script>
+      const canvas = document.getElementById("graph");
+      const graph = new Graph.WeightedGraph(12, false);
+      graph.latticeGraph(3, 4, 1, 10);
+      const graphDrawing = new Graph.GraphDrawing(graph, canvas);
+      const w = graphDrawing.canvas.width(), h = graphDrawing.canvas.height();
+      k = 0.1;
+      graphDrawing.latticeArrangement(3, 4, k*w, k*h, (1-2*k)*w, (1-2*k)*h);
+      graphDrawing.showFocusVertex();
+      graphDrawing.showFocusEdge();
+      graphDrawing.orderVerticesDblClick();
+      graphDrawing.selectEdgesOnDblClick();
+      graphDrawing.draw();
+
+      var CSS = {
+          finishedVertex: {
+              color: "blue"
+          },
+          candidateEdge: {
+              color: "green",
+              width: 2
+          },
+          backEdge: {
+              color: "red",
+              width: 2
+          },
+          treeEdge: {
+              color: "blue",
+              width: 4
+          }
+      };
+
+      function primVisualization(primTrace) {
+          const commands = [];
+          const finishedVertices = [];
+          for (let i = 0; i < primTrace.vertexOrder.length; i++) {
+              const stepCommands = [];
+              const vertex = primTrace.vertexOrder[i];
+              stepCommands.push(new Graph.CommandSetVertexCSS(graphDrawing, vertex, CSS.finishedVertex));
+              graph.neighbours[vertex].forEach(neighbour => {
+                  let css = null;
+                  const edge = [neighbour, vertex];
+                  if (primTrace.mstEdges.some(e => graphDrawing.equalEdges([e[1], e[2]], edge)))
+                      css = CSS.treeEdge;
+                  else if (!finishedVertices.includes(neighbour))
+                      css = CSS.candidateEdge;
+                  else
+                      css = CSS.backEdge;
+                  stepCommands.push(new Graph.CommandSetEdgeCSS(graphDrawing, [vertex, neighbour], css));
+              });
+              commands.push(stepCommands);
+              finishedVertices.push(vertex);
+          }
+          return new Graph.GraphCommands(commands);
+      }
+
+      const commands = primVisualization(graph.prim());
+
+      const btnNext = document.getElementById("btnNext");
+      btnNext.addEventListener("click", function() {
+          commands.next();
+      });
+
+      const btnPrev = document.getElementById("btnPrev");
+      btnPrev.addEventListener("click", function() {
+          commands.previous();
+      });
+
+      let timer = null;
+      const btnAnimate = document.getElementById("btnAnimate");
+      btnAnimate.addEventListener("click", function() {
+          timer = setInterval(function() {
+              if (!commands.done())
+                  commands.next();
+          }, 2000);
+      });
+
+      var btnCheck = document.getElementById("btnCheck");
+      btnCheck.addEventListener("click", function() {
+          const correctOrder = graph.prim().vertexOrder;
+          const givenOrder = graphDrawing.vertexOrderByLabel();
+          // compare arrays by converting them to strings
+          if (JSON.stringify(correctOrder) == JSON.stringify(givenOrder))
+              alert("Тачно");
+          else
+              alert("Нетачно");
+      });
+    </script>
+  </body>
+</html>

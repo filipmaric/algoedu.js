@@ -1,0 +1,162 @@
+<!doctype html>
+<html>
+  <head>
+    <title>BFS</title>
+    <meta charset="utf-8" />
+    <style>
+      canvas {
+          border: 1px solid black;
+          user-select: none;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="graph" width="400" height="400">
+    </canvas>
+    <p>
+      <button id="btnBFSTree">Прикажи BFS дрво</button>
+    </p>
+    
+    <p>
+      <button id="btnBFSPrev">Претходни корак у BFS обиласку</button>
+      <button id="btnBFSNext">Следећи корак у BFS обиласку</button>
+    </p>
+    </p>
+      <button id="btnBFSAnimate">Прикажи анимацију BFS обиласка</button>
+    </p>
+    <p>
+      <button id="btnDFSReset">Поништи све</button>
+    </p>
+    <p>
+      <button id="btnBFSCheck">Провери</button>
+    </p>
+    
+    <script src="../dist/Graph.js"></script>
+    <script>
+      const canvas = document.getElementById("graph");
+      const graph = new Graph.Graph(8, false);
+      graph.randomGraph();
+      const graphDrawing = new Graph.GraphDrawing(graph, canvas);
+      const w = graphDrawing.canvas.width(), h = graphDrawing.canvas.height();
+      k = 0.1
+      graphDrawing.circularArrangement(w/2, h/2, 0.8*Math.min(w/2, h/2));
+      graphDrawing.showFocusVertex();
+      graphDrawing.showFocusEdge();
+      graphDrawing.dragFocusVertex();
+      graphDrawing.orderVerticesDblClick();
+      graphDrawing.draw();
+      
+      var CSS = {
+          activeEdge: {
+              width: 4,
+              color: "blue"
+          },
+      
+          treeEdge: {
+              width: 2,
+              color: "blue"
+          },
+
+          visitedVertex: {
+              color: "#DDDDFF"
+          },
+
+          activeVertex: {
+              color: "lightgray"
+          },
+
+          colors: ["red", "green", "blue", "cyan", "magenta", "yellow"]
+      };
+
+      function setColor(css, color) {
+          css = {...css};
+          css.color = color;
+          return css;
+      }
+
+      function bfsVisualization(bfsTreeEdges, numVertices) {
+          if (bfsTreeEdges.length == 0)
+              return;
+          let [va, vb] = bfsTreeEdges[0];
+          let activeVertex = va;
+          let activeEdge = undefined;
+          const dist = new Array(numVertices);
+          dist[va] = 0;
+          dist[vb] = 1;
+          let bfsOrder = 0;
+          const commands = [[new Graph.CommandSetVertexCSS(graphDrawing, activeVertex, setColor(CSS.activeVertex, CSS.colors[dist[activeVertex]])),
+                             new Graph.CommandSetVertexLabel(graphDrawing, activeVertex, bfsOrder++)
+                            ]];
+          for (let i = 0; i < bfsTreeEdges.length; i++) {
+              const stepCommands = [];
+              if (activeEdge)
+                  stepCommands.push(new Graph.CommandSetEdgeCSS(graphDrawing, activeEdge, CSS.treeEdge));
+              activeEdge = bfsTreeEdges[i];
+              let [va, vb] = activeEdge;
+              dist[vb] = dist[va] + 1;
+              activeVertex = vb;
+              stepCommands.push(new Graph.CommandSetVertexCSS(graphDrawing, activeVertex, setColor(CSS.activeVertex, CSS.colors[dist[activeVertex]])));
+              if (activeEdge)
+                  stepCommands.push(new Graph.CommandSetEdgeCSS(graphDrawing, activeEdge, CSS.activeEdge));
+              stepCommands.push(new Graph.CommandSetVertexLabel(graphDrawing, activeVertex, bfsOrder++));
+              commands.push(stepCommands);
+          }
+          commands.push(new Graph.CommandSetEdgeCSS(graphDrawing, activeEdge, CSS.treeEdge));
+          return new Graph.GraphCommands(commands);
+      }
+      
+      const commands = bfsVisualization(graph.bfs(0), graph.numVertices());
+
+
+      const btnBFSTree = document.getElementById("btnBFSTree");
+      btnBFSTree.addEventListener("click", function() {
+          // execute BFS algorithm
+          var bfsTreeEdges = graph.bfs(0);
+          // arrange vertices
+          graphDrawing.treeArrangement(bfsTreeEdges, w, h);
+      });
+
+      const btnBFSNext = document.getElementById("btnBFSNext");
+      btnBFSNext.addEventListener("click", function() {
+          commands.next();
+      });
+
+      const btnBFSPrev = document.getElementById("btnBFSPrev");
+      btnBFSPrev.addEventListener("click", function() {
+          commands.previous();
+      });
+
+      let timer = null;
+      const btnBFSAnimate = document.getElementById("btnBFSAnimate");
+      btnBFSAnimate.addEventListener("click", function() {
+          timer = setInterval(function() {
+              if (!commands.done())
+                  commands.next();
+          }, 2000);
+      });
+
+      var btnBFSCheck = document.getElementById("btnBFSCheck");
+      btnBFSCheck.addEventListener("click", function() {
+          const treeEdges = graph.bfs(0);
+          let correctBFSOrder = treeEdges.map(edge => edge[1]);
+          correctBFSOrder.unshift(treeEdges[0][0]);
+          const givenBFSOrder = graphDrawing.vertexOrderByLabel();
+          // compare arrays by converting them to strings
+          if (JSON.stringify(correctBFSOrder) == JSON.stringify(givenBFSOrder))
+              alert("Тачно");
+          else
+              alert("Нетачно");
+      });
+
+      var btnDFSReset = document.getElementById("btnDFSReset");
+      btnDFSReset.addEventListener("click", function() {
+          if (timer != null) {
+              clearInterval(timer);
+              timer = null;
+          }
+          commands.reset();
+          graphDrawing.removeAllVertexLabels();
+      });
+    </script>
+  </body>
+</html>
