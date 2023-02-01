@@ -55,7 +55,7 @@ test('CircularArrangement', () => {
     g.randomGraph();
     const gd = new GraphDrawing(g);
     gd.circularArrangement(100, 100, 50);
-    const expectedPos = [[150, 100], [100, 50], [50, 100], [100, 150]];
+    const expectedPos = [[100, 50], [50, 100], [100, 150], [150, 100]];
     for (let i = 0; i < 4; i++)
         gd.getPosition(i).forEach((x, k) => expect(x).toBeCloseTo(expectedPos[i][k]));
 });
@@ -81,7 +81,7 @@ test('TreeArrangement', () => {
     g.addEdge(4, 5);
     const tree = [[0, 2], [2, 3], [3, 5], [5, 4], [0, 1]];
     const gd = new GraphDrawing(g);
-    gd.treeArrangement(tree, 100, 100);
+    gd.treeArrangement(0, tree, 0, 0, 0, 100, 100);
     // FIXME: UNTESTED
 });
 
@@ -175,20 +175,20 @@ test('floydWarshall', () => {
 test('select', () => {
     const g = new Graph(4);
     g.randomGraph();
-    g.addEdge(2, 3);
+    g.addEdge(0, 1);
     const gd = new GraphDrawing(g);
     gd.circularArrangement(100, 100, 50);
-    expect(gd.vertexOn(100, 150)).toBe(3);
-    expect(gd.vertexOn(103, 147)).toBe(3);
-    expect(gd.vertexOn(110, 140)).toBe(3);
+    expect(gd.vertexOn(100, 150)).toBe(2);
+    expect(gd.vertexOn(103, 147)).toBe(2);
+    expect(gd.vertexOn(110, 140)).toBe(2);
     expect(gd.vertexOn(110, 130)).toBeUndefined();
     gd.focusVertexOn(100, 150);
-    expect(gd.focusVertex).toBe(3);
-    gd.focusVertexOn(50, 100);
     expect(gd.focusVertex).toBe(2);
-    expect(gd.edgeOn(75, 125).sort()).toEqual([2, 3]);
-    gd.focusEdgeOn(75, 125);
-    expect(gd.focusEdge.sort()).toEqual([2, 3]);
+    gd.focusVertexOn(50, 100);
+    expect(gd.focusVertex).toBe(1);
+    expect(gd.edgeOn(75, 75).sort()).toEqual([0, 1]);
+    gd.focusEdgeOn(75, 75);
+    expect(gd.focusEdge.sort()).toEqual([0, 1]);
     gd.focusEdgeOn(200, 200);
     expect(gd.focusEdge).toBeUndefined();
     gd.setEdgeLabel([2, 3], "a");

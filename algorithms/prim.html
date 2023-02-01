@@ -44,6 +44,10 @@
     <p>
       <button id="btnReset">Поништи све</button>
     </p>
+
+    <p>
+      <button id="btnTree">Прикажи минимално повезујуће дрво</button>
+    </p>
     </div>
 
     <script src="../dist/Graph.js"></script>
@@ -134,6 +138,16 @@
           else
               alert("Нетачно");
       });
+
+      const btnTree = document.getElementById("btnTree");
+      btnTree.addEventListener("click", function() {
+          // execute prim's algorithm
+          const treeEdges = graph.prim().mstEdges.map(edge => [edge[1], edge[2]]);
+          console.log(treeEdges);
+          // arrange vertices
+          graphDrawing.treeArrangement(0, treeEdges, 0, 0, w, h);
+      });
+      
     </script>
   </body>
 </html>

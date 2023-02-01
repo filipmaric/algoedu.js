@@ -130,7 +130,7 @@
           // execute DFS algorithm
           var dfsTreeEdges = graph.dfs(0).filter(item => item.length == 2);
           // arrange vertices
-          graphDrawing.treeArrangement(dfsTreeEdges, w, h);
+          graphDrawing.treeArrangement(0, dfsTreeEdges, 0, 0, w, h);
       });
 
       const btnDFSNext = document.getElementById("btnDFSNext");

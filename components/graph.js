@@ -15,6 +15,12 @@ export class Graph {
             this.neighbours[j].push(i);
     }
 
+    removeEdge(i, j) {
+        this.neighbours[i] = this.neighbours[i].filter(item => item != j);
+        if (!this.directed)
+            this.neighbours[j] = this.neighbours[j].filter(item => item != i);
+    }
+
     hasEdge(i, j) {
         return this.neighbours[i].includes(j);
     }
@@ -367,7 +373,12 @@ class GraphDrawingCanvas {
 }
 
 export class GraphDrawing {
-    constructor(graph, canvas) {
+    constructor(graph, canvas, width, height) {
+        if (width)
+            canvas.width = width;
+        if (height)
+            canvas.height = height;
+        
         this.graph = graph;
         
         const n = graph.numVertices();
@@ -403,7 +414,7 @@ export class GraphDrawing {
         return this.vertexPosition[i];
     }
 
-    circularArrangement(cx, cy, r) {
+    circularArrangementPosition(cx, cy, r) {
         const n = this.graph.numVertices();
         
         function position(vertex) {
@@ -412,12 +423,15 @@ export class GraphDrawing {
             const y = cy - r * Math.sin(alpha);
             return [x, y];
         }
-        
-        this.vertexPosition = [...Array(n).keys()].map(vertex => position(vertex));
+        return [...Array(n).keys()].map(vertex => position(vertex));
+    }
+    
+    circularArrangement(cx, cy, r) {
+        this.vertexPosition = this.circularArrangementPosition(cx, cy, r);
         this.draw();
     }
 
-    latticeArrangement(m, n, x0, y0, width, height) {
+    latticeArrangementPosition(m, n, x0, y0, width, height) {
         function position(vertex, m, n) {
             const j = vertex % n;
             const i = Math.floor(vertex / n);
@@ -426,20 +440,28 @@ export class GraphDrawing {
             const y = y0 + i * h;
             return [x, y];
         }
-        this.vertexPosition = [...Array(this.graph.numVertices()).keys()].map(vertex => position(vertex, m, n));
+        return [...Array(this.graph.numVertices()).keys()].map(vertex => position(vertex, m, n));
+    }
+    
+    latticeArrangement(m, n, x0, y0, width, height) {
+        this.vertexPosition = this.latticeArrangementPosition(m, n, x0, y0, width, height);
         this.draw();
     }
 
-    treeArrangement(treeEdges, width, height) {
-        const self = this;
-        // start from a circular vertex arrangment
-        this.circularArrangement(width/2, height/2, Math.min(width/2, height/2));
-        
-        // gradimo liste susedstva DFS drveta
+    treeArrangementPosition(startPosition, root, treeEdges, x0, y0, width, height, reverse=false) {
+        if (treeEdges.length == 0) {
+            const result = [...startPosition];
+            result[root] = [x0 + width/2, y0 + height/2];
+            return result;
+        }
+
+        // build adjacency lists for the tree
         const n = this.graph.numVertices()
         const treeNeighbours = [...Array(n)].map(i => []);
         treeEdges.forEach(edge => {
-            const [a, b] = edge;
+            let [a, b] = edge;
+            if (reverse)
+                [a, b] = [b, a];
             treeNeighbours[a].push(b);
         });
 
@@ -448,7 +470,8 @@ export class GraphDrawing {
         const visited = new Array(n).fill(false);
         // maximal dept of a tree node
         let maxDepth = 0;
-        
+
+        const treePosition = new Array(n);
         // we draw the tree rooted at the given depth on a coordinate xStart
         // and return the x coordinate where its next sibling on that depth should be
         function positionRec(vertex, depth, xStart) {
@@ -459,34 +482,56 @@ export class GraphDrawing {
             treeNeighbours[vertex].forEach(neighbour => {
                 x = positionRec(neighbour, depth+1, x);
             });
-            self.vertexPosition[vertex][1] = depth;
+            
             if (treeNeighbours[vertex].length == 0) {
-                self.vertexPosition[vertex][0] = xStart;
+                treePosition[vertex] = [xStart, depth];
                 return xStart+1;
             } else {
-                self.vertexPosition[vertex][0] = (x + xStart - 1) / 2;
+                treePosition[vertex] = [(x + xStart - 1) / 2, depth];
                 return x;
             }
         }
 
         const xStart = 0;
-        const xEnd = positionRec(0, 0, xStart) - 1;
+        const xEnd = positionRec(root, 0, xStart) - 1;
         let dh = height / (maxDepth + 1);
         let dw = width / (xEnd - xStart + 1);
-        this.vertexPosition = this.vertexPosition.map((p, i) => {
-            let [x, y] = p;
-            if (visited[i]) {
-                x = dw / 2 + x * dw;
-                y = dh / 2 + y * dh;
+        return startPosition.map((p, vertex) => {
+            if (!visited[vertex])
+                return p;
+            else {
+                const [x, y] = treePosition[vertex];
+                return [x0 + dw / 2 + x * dw, y0 + dh / 2 + y * dh];
             }
-            return [x, y];
         });
+    }
+
+    treeArrangement(root, treeEdges, x0, y0, width, height, reverse=false) {
+        this.vertexPosition = this.treeArrangementPosition(this.vertexPosition, root, treeEdges, x0, y0, width, height, reverse);
         this.draw();
     }
 
-
     shake(n) {
         this.vertexPosition = this.vertexPosition.map(p => [p[0] + Math.random() * n - n/2, p[1] + Math.random() * n - n/2])
+    }
+
+    animateArrangement(newVertexPosition, n=30, dt=500) {
+        this.draw();
+        let t = 0;
+        const startVertexPosition = [...this.vertexPosition];
+        const self = this;
+        function step() {
+            for (let vertex = 0; vertex < self.graph.numVertices(); vertex++) {
+                const [x0, y0] = startVertexPosition[vertex];
+                const [x1, y1] = newVertexPosition[vertex];
+                self.vertexPosition[vertex] = [(1-t)*x0 + t*x1, (1-t)*y0 + t*y1];
+            }
+            self.draw();
+            t += 1 / n;
+            if (t < 1)
+                setTimeout(step, dt/n);
+        }
+        setTimeout(step, dt);
     }
 
 
@@ -985,6 +1030,12 @@ export class GraphDrawing {
             ctx.restore();
         }
 
+        function drawEdgeLoop(ctx, x, y, width, color, label) {
+            ctx.beginPath();
+            ctx.ellipse(x, y - 10, 10, 15, Math.PI, 0, 2*Math.PI);
+            ctx.stroke();
+        }
+
         function drawVertexCircle(ctx, x, y, color, vertex, label) {
             ctx.beginPath();
             ctx.arc(x, y, 15, 0, 2 * Math.PI);
@@ -1012,10 +1063,16 @@ export class GraphDrawing {
                 css = self.CSS().defaultEdge;
 	    const width = "width" in css ? css.width : self.CSS().defaultEdge.width;
 	    const color = "color" in css ? css.color : self.CSS().defaultEdge.color;
-            const [x1, y1] = self.vertexPosition[vertex1];
-            const [x2, y2] = self.vertexPosition[vertex2];
-            const label = self.edgeLabels[edge];
-            drawEdgeLine(ctx, x1, y1, x2, y2, width, color, self.graph.directed, label);
+            if (vertex1 != vertex2) {
+                const [x1, y1] = self.vertexPosition[vertex1];
+                const [x2, y2] = self.vertexPosition[vertex2];
+                const label = self.edgeLabels[edge];
+                drawEdgeLine(ctx, x1, y1, x2, y2, width, color, self.graph.directed, label);
+            } else {
+                const [x, y] = self.vertexPosition[vertex1];
+                const label = self.edgeLabels[edge];
+                drawEdgeLoop(ctx, x, y, width, color, label);
+            }
         }
 
         function drawVertex(ctx, vertex, css) {
@@ -1069,6 +1126,68 @@ export class GraphDrawing {
         });
     }
 
+    onVertexEvent(event, handler) {
+        const self = this;
+        this.canvas.addEventListener(event, function(e) {
+            const vertex = self.vertexOn(e.offsetX, e.offsetY);
+            if (vertex != undefined)
+                handler(vertex);
+        });
+    }
+
+    onVertexClick(handler) {
+        this.onVertexEvent("click", handler);
+    }
+
+    onVertexDblClick(handler) {
+        this.onVertexEvent("dblclick", handler);
+    }
+
+    onEdgeEvent(event, handler) {
+        const self = this;
+        this.canvas.addEventListener(event, function(e) {
+            const edge = self.edgeOn(e.offsetX, e.offsetY);
+            if (edge != undefined)
+                handler(edge);
+        });
+    }
+
+    onEdgeClick(handler) {
+        this.onEdgeEvent("click", handler);
+    }
+
+    onEdgeDblClick(handler) {
+        this.onEdgeEvent("dblclick", handler);
+    }
+
+    selectVerticesOnClick() {
+        var self = this;
+        this.onVertexClick(function(vertex) {
+            self.toggleSelectVertex(vertex);
+        });
+    }
+
+    selectEdgesOnClick() {
+        const self = this;
+        this.onEdgeClick(function(edge) {
+            self.toggleSelectEdge(edge);
+        });
+    }
+
+    selectVerticesOnDblClick() {
+        const self = this;
+        this.onVertexDblClick(function(vertex) {
+            self.toggleSelectVertex(vertex);
+        });
+    }
+
+    selectEdgesOnDblClick() {
+        const self = this;
+        this.onEdgeDblClick(function(edge) {
+            self.toggleSelectEdge(edge);
+        });
+    }
+
     showFocusVertex() {
         const self = this;
         this.canvas.addEventListener("mousemove", function(e) {
@@ -1083,34 +1202,6 @@ export class GraphDrawing {
         });
     }
 
-    selectVerticesOnClick() {
-        const self = this;
-        this.canvas.addEventListener("mousedown", function(e) {
-            self.toggleSelectVertexOn(e.offsetX, e.offsetY);
-        });
-    }
-
-    selectEdgesOnClick() {
-        const self = this;
-        this.canvas.addEventListener("mousedown", function(e) {
-            self.toggleSelectEdgeOn(e.offsetX, e.offsetY);
-        });
-    }
-
-    selectVerticesOnDblClick() {
-        const self = this;
-        this.canvas.addEventListener("dblclick", function(e) {
-            self.toggleSelectVertexOn(e.offsetX, e.offsetY);
-        });
-    }
-
-    selectEdgesOnDblClick() {
-        const self = this;
-        this.canvas.addEventListener("dblclick", function(e) {
-            self.toggleSelectEdgeOn(e.offsetX, e.offsetY);
-        });
-    }
-    
     dragFocusVertex() {
         const self = this;
         let mouseDown = false;
@@ -1132,33 +1223,14 @@ export class GraphDrawing {
         });
     }
 
-    vertexEvent(event, handler) {
+    orderVerticesDblClick(start=0) {
         const self = this;
-        this.canvas.addEventListener(event, function(e) {
-            const vertex = self.vertexOn(e.offsetX, e.offsetY);
-            if (vertex != undefined)
-                handler(vertex);
-        });
-    }
-
-    vertexClick(handler) {
-        this.vertexEvent("click", handler);
-    }
-
-    vertexDblClick(handler) {
-        this.vertexEvent("dblclick", handler);
-    }
-
-    orderVerticesDblClick(start=0, onDblClick=null) {
-        const self = this;
-        this.vertexDblClick(function(vertex) {
+        this.onVertexDblClick(function(vertex) {
             if (self.getVertexLabel(vertex) == undefined)
                 self.setVertexLabel(vertex, self.numLabeledVertices() + start);
             else if (self.getVertexLabel(vertex) == self.numLabeledVertices() + start - 1) {
                 self.removeVertexLabel(vertex);
             }
-            if (onDblClick != null)
-                onDblClick(vertex);
         });
     }
     
