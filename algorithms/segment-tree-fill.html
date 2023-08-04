@@ -1,0 +1,140 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Segment tree</title>
+    <meta charset="utf-8" />
+    <style>
+      canvas {
+          border: 1px solid black;
+          user-select: none;
+          margin-left: auto;
+          margin-right: auto;
+      }
+      body {
+          margin-left: auto;
+          margin-right: auto;
+          width: 800px;
+      }
+
+      table {
+          border-collapse: collapse;
+          margin-bottom: 10px;
+      }
+
+      td {
+          width: 30px;
+          height: 30px;
+          text-align: center;
+      }
+
+      td[data-selected="true"] {
+          border-width: 3px ! important;
+      }
+
+      td.active {
+          background-color: #ddddff
+      }
+
+      td.inSum {
+          font-weight: bold;
+          background-color: #ffffdd;
+      }
+
+      td.active.inSum {
+          background-color: #ddffdd;
+      }
+    </style>
+  </head>
+  <body>
+    <p>Originalni niz:</p>
+    <table id="tblArray"></table>
+
+    <p>Segmentno drvo:</p>
+    <canvas id="graph" width="800" height="300">
+    </canvas>
+    <table id="tblSegmentTree"></table>
+
+    <p>Popunite segmentno drvo i proverite da li ste to uradili kako treba</p>
+    <p>
+    <button id='checkGraph'>proveri crtež</button>
+    <button id='checkTable'>proveri tabelu</button>
+    </p>
+    
+    <script src="../dist/Graph.js"></script>
+    <script src="../dist/Arrays.js"></script>
+    <script>
+      function randInt(a, b) {
+          return a + Math.floor(Math.random() * (b - a));
+      }
+      
+      function randomArray(n, a, b) {
+          let arr = [];
+          for (var i = 0; i < n; i++)
+              arr.push(randInt(a, b));          
+          return arr;
+      }
+
+      const n = 8;
+      
+      const canvas = document.getElementById("graph");
+      const graph = new Graph.Graph(2*n-1);
+      const graphDrawing = new Graph.GraphDrawing(graph, canvas);
+      const w = graphDrawing.canvas.width(), h = graphDrawing.canvas.height();
+
+      const arr = randomArray(n, 1, 10);
+      const segmentTree = Array(2*n);
+      segmentTree[0] = "";
+      
+      const tblArray = document.getElementById("tblArray");
+      const arrDisplay = new Arrays.ArrayDisplay(arr, tblArray);
+      const tblSegmentTree = document.getElementById("tblSegmentTree");
+      const segmentTreeDisplay = new Arrays.ArrayDisplay(Array(2*n).fill(""), tblSegmentTree);
+
+      for (let i = 0; i < n; i++) {
+          segmentTree[i+n] = arr[i];
+          graphDrawing.setVertexContent(i+n-1, arr[i]);
+          graphDrawing.setVertexLabel(i+n-1, i+n);
+          segmentTreeDisplay.setValue(i+n, arr[i]);
+      }
+      
+      for (let k = n-1; k >= 1; k--) {
+          segmentTree[k] = segmentTree[2*k] + segmentTree[2*k+1];
+          graphDrawing.setVertexContent(k-1, "");
+          graphDrawing.setVertexLabel(k-1, k);
+          graph.addEdge(k-1, 2*k-1);
+          graph.addEdge(k-1, 2*k);
+      }
+
+      
+      const treeEdges = graph.dfsTree(0);
+      k=0.02;
+      graphDrawing.treeArrangement(0, treeEdges, k*w, 0, (1-2*k)*w, h);
+      graphDrawing.draw();
+
+      segmentTreeDisplay.editValueOnClick();
+      graphDrawing.editValueOnClick();
+
+
+      document.getElementById('checkGraph').addEventListener("click", function() {
+          const givenAnswer = [""]
+          for (let i = 0; i < graph.numVertices(); i++)
+              givenAnswer.push(graphDrawing.getVertexContent(i));
+          if (JSON.stringify(givenAnswer) == JSON.stringify(segmentTree))
+              alert("Tačno");
+          else
+              alert("Netačno");
+      });
+
+      document.getElementById('checkTable').addEventListener("click", function() {
+          const givenAnswer = []
+          for (let i = 0; i < 2*n; i++)
+              givenAnswer.push(segmentTreeDisplay.getValue(i));
+          if (JSON.stringify(givenAnswer) == JSON.stringify(segmentTree))
+              alert("Tačno");
+          else
+              alert("Netačno");
+      });
+
+    </script>      
+  </body>
+</html>

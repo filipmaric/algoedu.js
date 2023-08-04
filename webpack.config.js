@@ -4,6 +4,7 @@ module.exports = {
     mode: 'development',
     entry: {
         Graph: './components/graph.js',
+        Arrays: './components/array.js',
     },
     output: {
         filename: '[name].js',

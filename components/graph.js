@@ -1,3 +1,7 @@
+import { hsvColor } from './colors.js';
+import { shuffle } from './util.js';
+import { UnionFind } from './union_find.js';
+
 export class Graph {
     constructor(n=0, directed=true) {
         this.directed = directed;
@@ -7,6 +11,11 @@ export class Graph {
 
     numVertices() {
         return this.neighbours.length;
+    }
+
+    addVertex() {
+        this.neighbours.push([]);
+        return this.numVertices() - 1;
     }
 
     addEdge(i, j) {
@@ -25,6 +34,13 @@ export class Graph {
         return this.neighbours[i].includes(j);
     }
 
+    getEdges() {
+        if (this.directed)
+            return this.neighbours.map((ns, v) => ns.map(n => [v, n])).flat(1);
+        else
+            return this.neighbours.map((ns, v) => ns.map(n => [v, n])).flat(1).filter(edge => edge[0] <= edge[1]);
+    }
+
     getNeighbours(i) {
         return this.neighbours[i];
     }
@@ -35,7 +51,7 @@ export class Graph {
 
     sortNeighbours() {
         for (let i = 0; i < this.neighbours.length; i++)
-            this.neighbours[i].sort();
+            this.neighbours[i].sort((a, b) => a-b);
     }
     
     fullGraph(n) {
@@ -69,44 +85,299 @@ export class Graph {
         this.sortNeighbours();
     }
 
-    latticeGraph(m, n) {
+    // random tree with n vertices and edges chosen from the given set of edges
+    static randomTree(n, edges) {
+        const treeEdges = [];
+        const unionFind = new UnionFind(n);
+
+        if (edges === undefined) {
+            edges = [];
+            for (let i = 0; i < n - 1; i++) {
+                for (let j = i + 1; j < n; j++) {
+                    edges.push([i, j]);
+                }
+            }            
+        }
+
+        shuffle(edges);
+
+        for (const [nodeA, nodeB] of edges) {
+            if (unionFind.union(nodeA, nodeB))
+                treeEdges.push([nodeA, nodeB]);
+            if (treeEdges.length == n - 1)
+                break;
+        }
+        return treeEdges;
+    }
+
+    static latticeGraphEdges(m, n, diagonals) {
         function vertex(i, j) {
             return i * n + j;
         }
 
-        this.emptyGraph(m * n);
+        const edges = [];
 
         for (let i = 0; i < m; i++)
-            for (let j = 1; j < n; j++)
-                this.addEdge(vertex(i, j-1), vertex(i, j));
+            for (let j = 1; j < n; j++) {
+                const edge = [vertex(i, j-1), vertex(i, j)];
+                edges.push(edge);
+            }
 
         for (let j = 0; j < n; j++)
+            for (let i = 1; i < m; i++) {
+                const edge = [vertex(i-1, j), vertex(i, j)];
+                edges.push(edge);
+            }
+
+        if (diagonals) {
             for (let i = 1; i < m; i++)
-                this.addEdge(vertex(i-1, j), vertex(i, j));
-        this.sortNeighbours();
+                for (let j = 1; j < n; j++) {
+                    const edge = [vertex(i-1, j-1), vertex(i, j)];
+                    edges.push(edge);
+                }
+
+            for (let i = 0; i < m-1; i++)
+                for (let j = 1; j < n; j++) {
+                    const edge = [vertex(i, j), vertex(i+1, j-1)];
+                    edges.push(edge);
+                }
+        }
+        return edges;
     }
 
-
-    dfs(vertex=0) {
-        const self = this;
-        const visited = new Array(this.numVertices()).fill(false);
-        const trace = []
-        dfsRec(vertex);
-        function dfsRec(vertex) {
-            if (visited[vertex])
-                return;
-            visited[vertex] = true;
-            self.neighbours[vertex].forEach(neighbour => {
-                if (!visited[neighbour]) {
-                    trace.push([vertex, neighbour]);
-                    dfsRec(neighbour);
-                    trace.push([vertex]);
+    static orientTree(edges, root) {
+        function dfs(node) {
+            visited.push(node);
+            const nodeEdges = edges.filter(edge => edge.includes(node));
+            const neighbours = nodeEdges.map(edge => edge.filter(x => x != node)).flat(1);
+            neighbours.forEach(neighbour => {
+                if (!visited.includes(neighbour)) {
+                    orientedEdges.push([node, neighbour]);
+                    dfs(neighbour);
                 }
             });
         }
+        const visited = [];
+        const orientedEdges = [];
+        dfs(root);
+        return orientedEdges;
+    }
+
+    latticeGraph(m, n) {
+        this.emptyGraph(m * n);
+        for (const [nodeA, nodeB] of Graph.latticeGraphEdges(m, n, false))
+            this.addEdge(nodeA, nodeB);
+        this.sortNeighbours();
+    }
+
+    randomLatticeGraph(m, n, numEdges) {
+        this.emptyGraph(m * n);
+
+        const edges = Graph.latticeGraphEdges(m, n, true);
+
+        shuffle(edges);
+        for (let i = 0; i < numEdges && i < edges.length; i++)
+            this.addEdge(...edges[i]);
+        
+        this.sortNeighbours();
+    }
+
+    randomConnectedLatticeGraph(m, n, numEdges) {
+        this.emptyGraph(m * n);
+        const edges = Graph.latticeGraphEdges(m, n, true);
+        const tree = Graph.orientTree(Graph.randomTree(this.numVertices(), edges), 0);
+        const eqEdges = (edge1, edge2) => (edge1[0] == edge2[0] && edge1[1] == edge2[1]) ||
+                                          (edge1[0] == edge2[1] && edge1[1] == edge2[0]);
+        const remainingEdges = edges.filter(edge => !tree.some(edge1 => eqEdges(edge, edge1)));
+        tree.forEach(edge => this.addEdge(...edge));
+        for (let i = 0; i < numEdges - tree.length && i < remainingEdges.length; i++)
+            this.addEdge(...remainingEdges[i]);
+        this.sortNeighbours();
+    }
+    
+    static adjacencyLists(n, edges, reverse=false) {
+        const neighbours = [...Array(n)].map(i => []);
+        edges.forEach(edge => {
+            let [a, b] = edge;
+            if (reverse)
+                [a, b] = [b, a];
+            neighbours[a].push(b);
+        });
+        return neighbours;
+    }
+
+    dfsPrePost(startVertex, preprocess, postprocess) {
+        function dfsRecPrePost(vertex) {
+            if (visited[vertex])
+                return;
+            visited[vertex] = true;
+            preprocess(vertex);
+            this.neighbours[vertex].forEach(neighbour => {
+                if (neighbour != null && !visited[neighbour])
+                    this.dfsRec(neighbour, visited, trace);
+            });
+            postprocess(vertex);
+        }
+        const visited = new Array(this.numVertices()).fill(false);
+        dfsRecPrePost(startVertex);
+    }
+
+    dfsRec(vertex, visited, trace) {
+        if (visited[vertex])
+            return;
+        visited[vertex] = true;
+        this.neighbours[vertex].forEach(neighbour => {
+            if (neighbour != null && !visited[neighbour]) {
+                trace.push([vertex, neighbour]);
+                this.dfsRec(neighbour, visited, trace);
+                trace.push([vertex]);
+            }
+        });
+    }
+
+    dfs(vertex=0) {
+        const visited = new Array(this.numVertices()).fill(false);
+        const trace = []
+        this.dfsRec(vertex, visited, trace);
         return trace;
     }
 
+    dfsTree(vertex=0) {
+        return this.dfs(vertex).filter(item => item.length == 2);
+    }
+
+    dfsParent(vertex=0) {
+        const parent = new Array(this.numVertices()).fill(-1);
+        this.dfsTree(vertex).forEach(edge => {
+            const [from, to] = edge;
+            parent[to] = from;
+        });
+        return parent;
+    }
+
+    dfsOrder(vertex=0) {
+        const treeEdges = this.dfsTree(0);
+        let order = treeEdges.map(edge => edge[1]);
+        order.unshift(treeEdges[0][0]);
+        return order;
+    }
+    
+    dfsForrest(roots) {
+        const visited = new Array(this.numVertices()).fill(false);
+        const trace = [];
+        if (roots === undefined) {
+            for (let i = 0; i < this.numVertices(); i++)
+                if (!visited[i])
+                    this.dfsRec(i, visited, trace);
+        } else {
+            roots.forEach(i => {
+                if (!visited[i])
+                    this.dfsRec(i, visited, trace);
+            });
+        }
+        return trace.filter(item => item.length == 2);
+    }
+
+    dfsPreorderNumeration(vertex=0) {
+        const dfsTrace = this.dfs(vertex);
+        const preorder = new Array(this.numVertices()).fill(-1);
+        if (dfsTrace.length == 0)
+            return preorder;
+        let preorderNum = 0;
+        const start = dfsTrace[0][0];
+        preorder[start] = preorderNum++;
+        dfsTrace.forEach(data => {
+            if (data.length == 2) {
+                const [from, to] = data;
+                preorder[to] = preorderNum++;
+            }
+        });
+        return preorder;
+    }
+
+    dfsPostorderNumeration(vertex=0) {
+        const dfsTrace = this.dfs(vertex);
+        const postorder = new Array(this.numVertices()).fill(-1);
+        if (dfsTrace.length == 0)
+            return postorder;
+        let postorderNum = 0;
+        const start = dfsTrace[0][0];
+        const stack = [];
+        dfsTrace.forEach(data => {
+            if (data.length == 2) {
+                const [from, to] = data;
+                stack.push(to);
+            } else if (data.length == 1) {
+                const to = stack.pop();
+                postorder[to] = postorderNum++;
+            }
+        });
+        postorder[start] = postorderNum++;
+        return postorder;
+    }
+
+    dfsLowlink(vertex = 0) {
+        const lowlink = new Array(this.numVertices()).fill(-1);
+        const parent = new Array(this.numVertices()).fill(-1);
+        let preorderNum = 0;
+        const preorder = new Array(this.numVertices()).fill(-1);
+        const order = [];
+
+        const self = this;
+        function dfsRec(vertex) {
+            order.push(vertex);
+            preorder[vertex] = lowlink[vertex] = preorderNum++;
+            self.neighbours[vertex].forEach(neighbour => {
+                if (preorder[neighbour] == -1) {
+                    parent[neighbour] = vertex;
+                    dfsRec(neighbour);
+                    if (lowlink[neighbour] < lowlink[vertex])
+                        lowlink[vertex] = lowlink[neighbour];
+                } else if (neighbour != parent[vertex]) {
+                    if (preorder[neighbour] < lowlink[vertex])
+                        lowlink[vertex] = preorder[neighbour];
+                }
+            });
+        }
+
+        dfsRec(vertex);
+        return lowlink.map(l => order[l]);
+    }
+
+    bridges() {
+        if (this.directed)
+            throw "Bridges are not yet implemented for directed graphs";
+        const lowlink = graph.dfsLowlink(0);
+        const preorder = graph.dfsPreorderNumeration(0);
+        const bridges = this.dfsTree(0).filter(edge => {
+            const [from, to] = edge;
+            return preorder[from] < preorder[to] &&
+                   preorder[lowlink[to]] > preorder[from];
+        });
+        return bridges;
+    }
+
+    articulationPoints() {
+        if (this.directed)
+            throw "Articulation points are not yet implemented for directed graphs";
+        const aps = [];
+        const start = 0;
+        const lowlink = graph.dfsLowlink(start);
+        const preorder = graph.dfsPreorderNumeration(start);
+        const dfsTree = graph.dfsTree(start);
+        const treeNeighbours = Graph.adjacencyLists(this.numVertices(), dfsTree);
+        
+        for (let u = 1; u < this.numVertices(); u++) {
+            for (const v of treeNeighbours[u])
+                if (preorder[lowlink[v]] >= preorder[u]) {
+                    aps.push(u);
+                    break;
+                }
+        }
+            
+        return aps;
+    }
+        
     bfs(vertex) {
         const self = this;
         const visited = new Array(this.numVertices()).fill(false);
@@ -125,6 +396,21 @@ export class Graph {
             });
         }
         return trace;
+    }
+
+    normalizeEdge(edge) {
+        if (!this.directed && edge[0] > edge[1])
+            return [edge[1], edge[0]];
+        return edge;
+    }
+
+    // auxiliary function -- check if two edges are equal
+    static equalEdges(g1, g2) {
+        if (!g1 || !g2)
+            return false;
+        var [a1, b1] = g1;
+        var [a2, b2] = g2;
+        return a1 == a2 && b1 == b2;
     }
 }
 
@@ -336,6 +622,33 @@ export class WeightedGraph extends Graph {
     }
 }
 
+
+export class BinaryTree extends Graph {
+    constructor() {
+        super(0, true);
+        this.neighbours = []
+    }
+
+    addVertex() {
+        const n = this.numVertices();
+        this.neighbours.push([null, null]);
+        return n;
+    }
+
+    numVertices() {
+        return this.neighbours.length;
+    }
+
+    setLeftChild(parent, child) {
+        this.neighbours[parent][0] = child;
+    }
+    
+    setRightChild(parent, child) {
+        this.neighbours[parent][1] = child;
+    }
+}
+
+
 class GraphDrawingCanvas {
     constructor(canvas) {
         this._canvas = canvas;
@@ -367,6 +680,10 @@ class GraphDrawingCanvas {
         return this._ctx;
     }
 
+    getBoundingClientRect() {
+        return this._canvas.getBoundingClientRect();
+    }
+
     addEventListener(event, handler) {
         this._canvas.addEventListener(event, handler);
     }
@@ -386,6 +703,7 @@ export class GraphDrawing {
         this.vertexPosition = Array.from({length: n}, () => [0, 0]);
         
         this.vertexLabels = Array.from({length: n}, () => undefined);
+        this.vertexContent = Array.from({length: n}, () => undefined);
         this.vertexCSS = Array.from({length: n}, () => undefined);
         
         this.edgeLabels = {}
@@ -404,6 +722,28 @@ export class GraphDrawing {
 
         if (canvas != undefined)
             this.canvas = new GraphDrawingCanvas(canvas);
+
+        this.setCSS();
+    }
+
+    width() {
+        return this.canvas.width();
+    }
+
+    height() {
+        return this.canvas.height();
+    }
+    
+    numVertices() {
+        return this.graph.numVertices();
+    }
+
+    addVertex() {
+        const vertex = this.graph.addVertex();
+        this.vertexPosition.push([0, 0]);
+        this.vertexLabels.push(undefined);
+        this.vertexCSS.push(undefined);
+        return vertex;
     }
 
     setPosition(i, pos) {
@@ -415,7 +755,7 @@ export class GraphDrawing {
     }
 
     circularArrangementPosition(cx, cy, r) {
-        const n = this.graph.numVertices();
+        const n = this.numVertices();
         
         function position(vertex) {
             const alpha = Math.PI / 2 + vertex * (2*Math.PI / n);
@@ -440,7 +780,7 @@ export class GraphDrawing {
             const y = y0 + i * h;
             return [x, y];
         }
-        return [...Array(this.graph.numVertices()).keys()].map(vertex => position(vertex, m, n));
+        return [...Array(this.numVertices()).keys()].map(vertex => position(vertex, m, n));
     }
     
     latticeArrangement(m, n, x0, y0, width, height) {
@@ -448,62 +788,72 @@ export class GraphDrawing {
         this.draw();
     }
 
-    treeArrangementPosition(startPosition, root, treeEdges, x0, y0, width, height, reverse=false) {
-        if (treeEdges.length == 0) {
-            const result = [...startPosition];
-            result[root] = [x0 + width/2, y0 + height/2];
-            return result;
-        }
-
-        // build adjacency lists for the tree
-        const n = this.graph.numVertices()
-        const treeNeighbours = [...Array(n)].map(i => []);
-        treeEdges.forEach(edge => {
-            let [a, b] = edge;
-            if (reverse)
-                [a, b] = [b, a];
-            treeNeighbours[a].push(b);
-        });
-
+    treeCoordinates(treeNeighbours, root, xStart, yStart) {
         // we arrange the tree recursively
         // visited nodes during tree traversal
-        const visited = new Array(n).fill(false);
+        const visited = new Array(this.numVertices()).fill(false);
         // maximal dept of a tree node
         let maxDepth = 0;
 
-        const treePosition = new Array(n);
+        const coords = new Array(this.numVertices());
         // we draw the tree rooted at the given depth on a coordinate xStart
         // and return the x coordinate where its next sibling on that depth should be
-        function positionRec(vertex, depth, xStart) {
+        function positionRec(vertex, xStart, depth) {
+            if (vertex == null)
+                return xStart+1;
+            
             visited[vertex] = true;
             if (depth > maxDepth)
                 maxDepth = depth;
             let x = xStart;
             treeNeighbours[vertex].forEach(neighbour => {
-                x = positionRec(neighbour, depth+1, x);
+                x = positionRec(neighbour, x, depth+1);
             });
             
             if (treeNeighbours[vertex].length == 0) {
-                treePosition[vertex] = [xStart, depth];
+                coords[vertex] = [xStart, yStart + depth];
                 return xStart+1;
             } else {
-                treePosition[vertex] = [(x + xStart - 1) / 2, depth];
+                coords[vertex] = [(x + xStart - 1) / 2, yStart + depth];
                 return x;
             }
         }
 
+        const xEnd = positionRec(root, xStart, yStart) - 1;
+        return {visited: visited, coords: coords, xEnd: xEnd, yEnd: yStart + maxDepth};
+    }
+
+
+    treeArrangementPositionNeigbours(initialVertexPosition, root, treeNeighbours, x0, y0, width, height, reverse=false) {
+        // special case when root has no edges
+        if (treeNeighbours[root].filter(neighbour => neighbour != null).length == 0) {
+            const result = [...initialVertexPosition];
+            result[root] = [x0 + width/2, y0 + height/2];
+            return result;
+        }
+        
         const xStart = 0;
-        const xEnd = positionRec(root, 0, xStart) - 1;
-        let dh = height / (maxDepth + 1);
-        let dw = width / (xEnd - xStart + 1);
-        return startPosition.map((p, vertex) => {
-            if (!visited[vertex])
+        const yStart = 0;
+        const coordinates = this.treeCoordinates(treeNeighbours, root, xStart, yStart);
+        
+        let dh = height / (coordinates.yEnd - yStart + 1);
+        let dw = width / (coordinates.xEnd - xStart + 1);
+        return initialVertexPosition.map((p, vertex) => {
+            if (!coordinates.visited[vertex])
                 return p;
             else {
-                const [x, y] = treePosition[vertex];
+                const [x, y] = coordinates.coords[vertex];
                 return [x0 + dw / 2 + x * dw, y0 + dh / 2 + y * dh];
             }
         });
+    }
+    
+    
+    treeArrangementPosition(initialVertexPosition, root, treeEdges, x0, y0, width, height, reverse=false) {
+        // build adjacency lists for the tree
+        const n = this.numVertices()
+        const treeNeighbours = Graph.adjacencyLists(n, treeEdges, reverse);
+        return this.treeArrangementPositionNeigbours(initialVertexPosition, root, treeNeighbours, x0, y0, width, height, reverse);
     }
 
     treeArrangement(root, treeEdges, x0, y0, width, height, reverse=false) {
@@ -511,6 +861,54 @@ export class GraphDrawing {
         this.draw();
     }
 
+    treeArrangementNeighbours(root, treeNeighbours, x0, y0, width, height, reverse=false) {
+        this.vertexPosition = this.treeArrangementPositionNeigbours(this.vertexPosition, root, treeNeighbours, x0, y0, width, height, reverse);
+        this.draw();
+    }
+    
+    forrestArrangementPosition(initialVertexPosition, roots, forestEdges, x0, y0, width, height, reverse=false) {
+        // build adjacency lists for the forest
+        const n = this.numVertices()
+        const forrestNeighbours = Graph.adjacencyLists(n, forestEdges, reverse);
+
+        let xStart = 0;
+        let xEnd = 0;
+        let yStart = 0;
+        let yEnd = 0;
+        const coordinates = {
+            visited: Array(n).fill(false),
+            coords: Array(n)
+        }
+        roots.forEach(root => {
+            const  c = this.treeCoordinates(forrestNeighbours, root, xStart, yStart);
+            for (let i = 0; i < n; i++) {
+                if (c.visited[i]) {
+                    coordinates.visited[i] = true;
+                    coordinates.coords[i] = c.coords[i];
+                }
+            }
+            xEnd = c.xEnd;
+            xStart = c.xEnd + 1;
+            yEnd = Math.max(yEnd, c.yEnd);
+        });
+
+        let dh = height / (yEnd + 1);
+        let dw = width / (xEnd  + 1);
+        return initialVertexPosition.map((p, vertex) => {
+            if (!coordinates.visited[vertex])
+                return p;
+            else {
+                const [x, y] = coordinates.coords[vertex];
+                return [x0 + dw / 2 + x * dw, y0 + dh / 2 + y * dh];
+            }
+        });
+    }
+
+    forrestArrangement(roots, forestEdges, x0, y0, width, height, reverse=false) {
+        this.vertexPosition = this.forrestArrangementPosition(this.vertexPosition, roots, forestEdges, x0, y0, width, height, reverse);
+        this.draw();
+    }
+    
     shake(n) {
         this.vertexPosition = this.vertexPosition.map(p => [p[0] + Math.random() * n - n/2, p[1] + Math.random() * n - n/2])
     }
@@ -521,7 +919,7 @@ export class GraphDrawing {
         const startVertexPosition = [...this.vertexPosition];
         const self = this;
         function step() {
-            for (let vertex = 0; vertex < self.graph.numVertices(); vertex++) {
+            for (let vertex = 0; vertex < self.numVertices(); vertex++) {
                 const [x0, y0] = startVertexPosition[vertex];
                 const [x1, y1] = newVertexPosition[vertex];
                 self.vertexPosition[vertex] = [(1-t)*x0 + t*x1, (1-t)*y0 + t*y1];
@@ -534,6 +932,26 @@ export class GraphDrawing {
         setTimeout(step, dt);
     }
 
+    // VERTEX CONTENT
+
+    getVertexContent(vertex) {
+        if (this.vertexContent[vertex] !== undefined) {
+            const str = this.vertexContent[vertex];
+            if (/^-?\d+$/.test(str))
+                return parseInt(str);
+            else
+                return str;
+        } else
+            return vertex;
+    }
+
+    setVertexContent(vertex, content) {
+        if (this.vertexContent[vertex] === content)
+            return false;
+        this.vertexContent[vertex] = content;
+        this.draw();
+        return true;
+    }
 
     // LABELS
     
@@ -554,20 +972,23 @@ export class GraphDrawing {
     }
 
     removeAllVertexLabels() {
-        for (let vertex = 0; vertex < this.graph.numVertices(); vertex++)
+        for (let vertex = 0; vertex < this.numVertices(); vertex++)
             this.removeVertexLabel(vertex);
     }
 
+    edgeKey(edge) {
+        return JSON.stringify(this.graph.normalizeEdge(edge));
+    }
+
     getEdgeLabel(edge) {
-        return this.edgeLabels[edge];
+        return this.edgeLabels[this.edgeKey(edge)];
     }
 
     setEdgeLabel(edge, label) {
-        if (!this.graph.directed)
-            edge.sort((a, b) => a - b);
-        if (this.edgeLabels[edge] == label)
+        const key = this.edgeKey(edge);
+        if (this.edgeLabels[key] == label)
             return false;
-        this.edgeLabels[edge] = label;
+        this.edgeLabels[key] = label;
         this.draw();
         return true;
     }
@@ -578,7 +999,7 @@ export class GraphDrawing {
 
     getLabeledVertices() {
         const vertices = []
-        for (let vertex = 0; vertex < this.graph.numVertices(); vertex++) {
+        for (let vertex = 0; vertex < this.numVertices(); vertex++) {
             if (this.vertexLabels[vertex] != undefined)
                 vertices.push(vertex);
         }
@@ -587,7 +1008,7 @@ export class GraphDrawing {
 
     numLabeledVertices() {
         let vertices = 0;
-        for (let vertex = 0; vertex < this.graph.numVertices(); vertex++) {
+        for (let vertex = 0; vertex < this.numVertices(); vertex++) {
             if (this.vertexLabels[vertex] != undefined)
                 vertices++;
         }
@@ -596,7 +1017,7 @@ export class GraphDrawing {
 
     vertexOrderByLabel() {
         const labels = []
-        for (let vertex = 0; vertex < this.graph.numVertices(); vertex++) {
+        for (let vertex = 0; vertex < this.numVertices(); vertex++) {
             const label = this.vertexLabels[vertex];
             if (label != undefined)
                 labels.push([label, vertex]);
@@ -615,41 +1036,77 @@ export class GraphDrawing {
 
     
     // CSS
-
     getVertexCSS(vertex) {
         return this.vertexCSS[vertex];
     }
 
+    getVertexCSSProperty(vertex, property) {
+        const css = this.getVertexCSS(vertex);
+        if (css === undefined)
+            return undefined;
+        return css[property];
+    }
+
     setVertexCSS(vertex, css) {
-        if (this.vertexCSS[vertex] == css)
+        for (const property in css)
+            this.setVertexCSSProperty(vertex, property, css[property]);
+        this.draw();
+    }
+
+    setVertexCSSProperty(vertex, property, value) {
+        if (this.getVertexCSS(vertex, property) == value)
             return false;
-        this.vertexCSS[vertex] = css;
+        if (!this.vertexCSS[vertex])
+            this.vertexCSS[vertex] = {};
+        this.vertexCSS[vertex][property] = value;
+        this.draw();
+        return true;
+    }
+    
+    removeVertexCSS(vertex) {
+        if (this.getVertexCSS(vertex) == undefined)
+            return false;
+        delete this.vertexCSS[vertex];
         this.draw();
         return true;
     }
 
-    removeVertexCSS(vertex) {
-        return this.setVertexCSS(vertex, undefined);
+    removeAllVertexCSS() {
+        this.vertexCSS = Array(this.numVertices());
+        this.draw();
     }
 
     getEdgeCSS(edge) {
-        return this.edgeCSS[edge];
+        return this.edgeCSS[this.edgeKey(edge)];
     }
-    
-    setEdgeCSS(edge, css) {
-        if (!this.graph.directed)
-            edge.sort((a, b) => a - b) ;
-        if (this.edgeCSS[edge] == css)
+
+    getEdgeCSSProperty(edge, property) {
+        const css = this.getEdgeCSS(edge);
+        if (css === undefined)
+            return undefined;
+        return css[property];
+    }
+
+    setEdgeCSSProperty(edge, property, value) {
+        if (this.getEdgeCSSProperty(edge, property) == value)
             return false;
-        this.edgeCSS[edge] = css;
+        const key = this.edgeKey(edge);
+        if (this.edgeCSS[key] == undefined)
+            this.edgeCSS[key] = {};
+        this.edgeCSS[key][property] = value;
         this.draw();
         return true;
     }
+    
+    setEdgeCSS(edge, css) {
+        for (const property in css)
+            this.setEdgeCSSProperty(edge, property, css[property]);
+    }
 
     removeEdgeCSS(edge) {
-        if (this.edgeCSS[edge] == undefined)
+        if (this.getEdgeCSS(edge) == undefined)
             return false;
-        delete this.edgeCSS[edge];
+        delete this.edgeCSS[this.edgeKey(edge)];
         this.draw();
         return true;
     }
@@ -671,7 +1128,7 @@ export class GraphDrawing {
     // reset both vertex and edge css styles
     resetAllCSS() {
         this.vertexCSS = Array(this.vertexCSS.length).fill(undefined);
-        this.edgeCSS = [];
+        this.edgeCSS = {};
         this.draw();
         return true;
     }
@@ -686,7 +1143,7 @@ export class GraphDrawing {
 
     // which node lies on point (x, y)
     vertexOn(x, y) {
-        const n = this.graph.numVertices();
+        const n = this.numVertices();
         for (let vertex = 0; vertex < n; vertex++)
             if (this.closeToVertex(vertex, x, y))
                 return vertex;
@@ -694,28 +1151,55 @@ export class GraphDrawing {
     }
 
     // is point (x, y) close to the given edge [vertex1, vertex2]?
-    closeToEdge(edge, x, y) {
-        var [vertex1, vertex2] = edge;
-        var [x0, y0] = this.vertexPosition[vertex1];
-        var [x1, y1] = this.vertexPosition[vertex2];
-        function distance(ax, ay, bx, by) { 
-            return Math.sqrt((ax - bx)*(ax - bx) + (ay - by)*(ay - by));
+
+    // is point (x, y) close to the given edge [vertex1, vertex2]?
+    closeToEdge(edge, x, y, curvature=0) {
+        if (curvature == 0) {
+            var [vertex1, vertex2] = edge;
+            var [x0, y0] = this.vertexPosition[vertex1];
+            var [x1, y1] = this.vertexPosition[vertex2];
+            
+            function distance(ax, ay, bx, by) { 
+                return Math.sqrt((ax - bx)*(ax - bx) + (ay - by)*(ay - by));
+            }
+            var eps = 1;
+            return Math.abs(distance(x, y, x0, y0) + distance(x, y, x1, y1) - distance(x0, y0, x1, y1)) < eps;
+        } else {
+            function pointOnQuadraticCurve(x, y, P0, P1, P2, eps = 1) {
+                function quadraticCurveEquation(t, P0, P1, P2) {
+                    const xT = (1 - t) ** 2 * P0[0] + 2 * (1 - t) * t * P1[0] + t ** 2 * P2[0];
+                    const yT = (1 - t) ** 2 * P0[1] + 2 * (1 - t) * t * P1[1] + t ** 2 * P2[1];
+                    return { x: xT, y: yT };
+                }
+                
+                const n = 50;
+                const dt = 1 / n;
+                let t = 0;
+                for (let i = 0; i <= n; i++) {
+                    t += dt;
+                    const { x: xT, y: yT } = quadraticCurveEquation(t, P0, P1, P2);
+                    const distance = Math.sqrt((xT - x) ** 2 + (yT - y) ** 2);
+                    if (distance < eps)
+                        return true;
+                }
+                
+                return false;
+            }
+            var [vertex1, vertex2] = edge;
+            var [x0, y0] = this.vertexPosition[vertex1];
+            var [x1, y1] = this.vertexPosition[vertex2];
+            var [mx, my] = [(x0 + x1) / 2, (y0 + y1) / 2];
+            return pointOnQuadraticCurve(x, y, [x0, y0], [mx - curvature*(my - y0), my + curvature*(mx - x0)], [x1, y1], 5);
         }
-        var eps = 1;
-        return Math.abs(distance(x, y, x0, y0) + distance(x, y, x1, y1) - distance(x0, y0, x1, y1)) < eps;
     }
     
     // which edge lies on point (x, y)
     edgeOn(x, y) {
-        const n = this.graph.numVertices();
-        let result = undefined;
-        for (let vertex = 0; vertex < n; vertex++)
-            this.graph.getNeighbours(vertex).forEach(neighbour => {
-                const edge = [vertex, neighbour];
-                if (this.closeToEdge(edge, x, y))
-                    result = edge;
-            });
-        return result;
+        return this.graph.getEdges().find(edge => {
+            let curvature = this.getEdgeCSSProperty(edge, "curvature");
+            if (curvature == undefined) curvature = this.CSS.edge.curvature;
+            return this.closeToEdge(edge, x, y, curvature)
+        });
     }
 
     // FOCUSING
@@ -760,7 +1244,7 @@ export class GraphDrawing {
     // check if the given edge is selected
     isSelectedEdge(edge) {
         for (const e of this.selectedEdges)
-            if (this.equalEdges(e, edge))
+            if (Graph.equalEdges(e, edge))
                 return true;
         return false;
     }
@@ -834,7 +1318,7 @@ export class GraphDrawing {
     // deselect a given edge
     deselectEdge(edge) {
         if (this.isSelectedEdge(edge)) {
-	    this.selectedEdges = this.selectedEdges.filter(e => !this.equalEdges(e, edge));
+	    this.selectedEdges = this.selectedEdges.filter(e => !Graph.equalEdges(e, edge));
             this.draw();
             return true;
         }
@@ -967,51 +1451,64 @@ export class GraphDrawing {
         this.draw();
     }
 
-    // auxiliary function -- check if two edges are equal
-    equalEdges(g1, g2) {
-        if (!g1 || !g2)
-            return false;
-        var [a1, b1] = g1;
-        var [a2, b2] = g2;
-        return a1 == a2 && b1 == b2;
-    }
-
     // graph drawing
     draw() {
         if (this.canvas == undefined)
             return;
         
-        function drawEdgeLine(ctx, x1, y1, x2, y2, width, color, directed, label) {
+        function drawEdgeLine(ctx, x1, y1, x2, y2, width, color, directed, label, curvature, vertexSize1, vertexSize2) {
             var d = Math.sqrt((x2-x1)*(x2-x1) + (y2-y1)*(y2-y1));
             
             ctx.save();
-            ctx.translate(x1, y1);
+            ctx.translate(x2, y2);
             var alpha = Math.atan2(y2 - y1, x2 - x1);
             ctx.rotate(alpha);
 
-            var r = 15;
-            var bottomX = r, bottomY = 0;
-            var topX = d - r, topY = 0;
+            var bottomX = -d, bottomY = 0;
+            var topX = 0, topY = 0;
 
-            // draw line
+            // draw "line"
             ctx.beginPath();
             ctx.lineWidth = width;
             ctx.strokeStyle = color;
             ctx.moveTo(bottomX, bottomY);
-            ctx.lineTo(topX, topY);
+            const midX = (bottomX + topX) / 2;
+            const midY = -curvature * midX;
+            ctx.quadraticCurveTo(midX, midY, topX, topY);
             ctx.stroke();
 
             // draw "arrow"
             if (directed) {
+                if (curvature != 0) {
+                    ctx.save();
+                    const Cx = t => bottomX*(1-t)**2 + 2*midX*t*(1-t) + topX*t**2;
+                    const Cy = t => bottomY*(1-t)**2 + 2*midY*t*(1-t) + topY*t**2;
+                    const n = 200;
+                    const dt = 1/n;
+                    let t = 1.0;
+                    for (let i = 0; i <= n; i++) {
+                        t -= dt;
+                        if ((Cx(t) - topX)**2 + (Cy(t) - topY)**2 > vertexSize2**2)
+                            break;
+                    }
+
+                    const alpha = Math.atan2(Cy(t + dt) - Cy(t), Cx(t + dt) - Cx(t));
+                    ctx.rotate(alpha);
+                }
+
                 ctx.beginPath();
-                ctx.moveTo(topX - r, topY - 5);
-                ctx.lineTo(topX, topY);
+                const length = 15;
+                ctx.moveTo(topX - vertexSize2 - length, topY - length / 3);
+                ctx.lineTo(topX - vertexSize2, topY);
                 ctx.stroke();
                 
                 ctx.beginPath();
-                ctx.moveTo(topX - r, topY + 5);
-                ctx.lineTo(topX, topY);
+                ctx.moveTo(topX - length - vertexSize2, topY + length / 3);
+                ctx.lineTo(topX - vertexSize2, topY);
                 ctx.stroke();
+
+                if (curvature != 0)
+                    ctx.restore();
             }
 
             // print weight
@@ -1036,93 +1533,144 @@ export class GraphDrawing {
             ctx.stroke();
         }
 
-        function drawVertexCircle(ctx, x, y, color, vertex, label) {
+        function drawVertexCircle(ctx, x, y, size, color, fontFamily, fontSize, content, label, labelSize, labelColor, labelBackground) {
             ctx.beginPath();
-            ctx.arc(x, y, 15, 0, 2 * Math.PI);
+            ctx.arc(x, y, size, 0, 2 * Math.PI);
             ctx.fillStyle = color;
             ctx.fill();
             ctx.lineWidth = 1;
             ctx.stroke();
-            ctx.font = "15px Arial";
-            ctx.fillStyle = "black";
+            ctx.font = fontSize + " " + fontFamily;
+            ctx.fillStyle = hsvColor(color).v >= 0.6 ? "black" : "white";
             ctx.textAlign = "center";
             ctx.textBaseline = "middle";
-            ctx.fillText(vertex, x, y);
+            ctx.fillText(content, x, y);
             if (label !== undefined) {
                 ctx.save();
-                ctx.fillStyle = "red";
-                ctx.fillText(label, x + 25, y - 15);
+                ctx.font = labelSize + " " + fontFamily;
+                ctx.fillStyle = labelColor;
+
+                const x0 = x + 25, y0 = y - 15;
+
+                if (labelBackground) {
+                    const padding = 2;
+                    const textWidth = ctx.measureText(label).width + padding + 2;
+                    const textHeight = parseInt(labelSize) + padding;
+                    ctx.globalAlpha = 0.8;
+                    ctx.fillStyle = "#ddd";
+                    ctx.fillRect(x0 - textWidth / 2, y0 - textHeight / 2, textWidth, textHeight);
+                    ctx.globalAlpha = 1;
+                    ctx.strokeStyle = labelColor;
+                    ctx.strokeRect(x0 - textWidth / 2, y0 - textHeight / 2, textWidth, textHeight);
+                }
+                
+                ctx.fillStyle = labelColor;
+                ctx.fillText(label, x0, y0);
 		ctx.restore();
             }
         }
 
         const self = this;
-        function drawEdge(ctx, edge, css) {
+        function drawEdge(ctx, edge, css, vertexCSS1, vertexCSS2) {
             const [vertex1, vertex2] = edge;
             if (css == undefined)
-                css = self.CSS().defaultEdge;
-	    const width = "width" in css ? css.width : self.CSS().defaultEdge.width;
-	    const color = "color" in css ? css.color : self.CSS().defaultEdge.color;
+                css = self.CSS.edge;
+            if (vertexCSS1 == undefined)
+                vertexCSS1 = self.CSS.vertex;
+            if (vertexCSS2 == undefined)
+                vertexCSS2 = self.CSS.vertex;
+            
+	    const width = "width" in css ? css.width : self.CSS.edge.width;
+	    const color = "color" in css ? css.color : self.CSS.edge.color;
+	    const curvature = "curvature" in css ? css.curvature : self.CSS.edge.curvature;
+            
             if (vertex1 != vertex2) {
                 const [x1, y1] = self.vertexPosition[vertex1];
                 const [x2, y2] = self.vertexPosition[vertex2];
-                const label = self.edgeLabels[edge];
-                drawEdgeLine(ctx, x1, y1, x2, y2, width, color, self.graph.directed, label);
+                const label = self.getEdgeLabel(edge);
+                const vertexSize1 = "size" in vertexCSS1 ? vertexCSS1["size"] : self.CSS.vertex.size;
+                const vertexSize2 = "size" in vertexCSS2 ? vertexCSS1["size"] : self.CSS.vertex.size;
+                
+                drawEdgeLine(ctx, x1, y1, x2, y2, width, color, self.graph.directed, label, curvature, vertexSize1, vertexSize2);
             } else {
                 const [x, y] = self.vertexPosition[vertex1];
-                const label = self.edgeLabels[edge];
-                drawEdgeLoop(ctx, x, y, width, color, label);
+                const label = self.getEdgeLabel(edge);
+                const vertexSize =  "size" in vertexCSS1 ? vertexCSS1["size"] : self.CSS.vertex.size;
+                drawEdgeLoop(ctx, x, y, width, color, label, vertexSize);
             }
         }
 
         function drawVertex(ctx, vertex, css) {
             if (css == undefined)
-                css = self.CSS().defaultVertex;
+                css = self.CSS.vertex;
             const [x, y] = self.vertexPosition[vertex];
-	    const color = "color" in css ? css.color : self.CSS().defaultVertex.color;
+	    const color = "color" in css ? css.color : self.CSS.vertex.color;
+	    const size = "size" in css ? css.size : self.CSS.vertex.size;
+            const fontFamily = "fontFamily" in css ? css.fontFamily : self.CSS.vertex.fontFamily;
+            const fontSize = "fontSize" in css ? css.fontSize : self.CSS.vertex.fontSize;
             const label = self.vertexLabels[vertex];
-            drawVertexCircle(ctx, x, y, color, vertex, label);
+            const content = self.getVertexContent(vertex);
+            const labelSize = "labelSize" in css ? css.labelSize : self.CSS.vertex.labelSize;
+            const labelColor = "labelColor" in css ? css.labelColor : self.CSS.vertex.labelColor;
+            const labelBackground = "labelBackground" in css ? css.labelBackground : self.CSS.vertex.labelBackground;
+            
+            drawVertexCircle(ctx, x, y, size, color, fontFamily, fontSize, content, label, labelSize, labelColor, labelBackground);
         }
 
         const ctx = this.canvas.ctx();
         ctx.clearRect(0, 0, this.canvas.width(), this.canvas.height());
 
         // draw edges that are not in focus
-        for (let vertex = 0; vertex < this.graph.numVertices(); vertex++) {
-            this.graph.neighbours[vertex].forEach(neighbour => {
-                var edge = [vertex, neighbour];
-                if (this.graph.directed || vertex <= neighbour) {
-                    if (!this.equalEdges(this.focusEdge, edge))
-                        drawEdge(ctx, edge, this.edgeCSS[edge]);
-                }
-            });
-        }
+        this.graph.getEdges().forEach(edge => {
+            if (!Graph.equalEdges(this.focusEdge, edge)) {
+                const edgeCSS = this.getEdgeCSS(edge);
+                const [v1, v2] = edge;
+                const vertexCSS1 = this.getVertexCSS(v1);
+                const vertexCSS2 = this.getVertexCSS(v2);
+                drawEdge(ctx, edge, edgeCSS, vertexCSS1, vertexCSS2);
+            }
+        });
 
         // draw focus edge
         if (this.focusEdge != undefined) {
-            drawEdge(ctx, this.focusEdge, this.CSS().focusEdge);
+            const css = {...this.getEdgeCSS(this.focusEdge)};
+            for (const property in this.CSS.focusEdge)
+                css[property] = this.CSS.focusEdge[property];
+            const [v1, v2] = this.focusEdge;
+            const vertexCSS1 = this.getVertexCSS(v1);
+            const vertexCSS2 = this.getVertexCSS(v2);
+            drawEdge(ctx, this.focusEdge, css, vertexCSS1, vertexCSS2);
         }
         
         // draw vertices that are not in focus
-        for (let vertex = 0; vertex < this.graph.numVertices(); vertex++)
+        for (let vertex = 0; vertex < this.numVertices(); vertex++)
             if (vertex != this.focusVertex) {
-                const css = this.vertexCSS[vertex] ? this.vertexCSS[vertex] : this.CSS().defaultVertex;
+                const css = this.vertexCSS[vertex] ? this.vertexCSS[vertex] : this.CSS.vertex;
                 drawVertex(ctx, vertex, css);
             }
         
         // draw focus vertex
         if (this.focusVertex != undefined) {
-            drawVertex(ctx, this.focusVertex, this.CSS().focusVertex);
+            const css = {...this.getVertexCSS(this.focusVertex)};
+            for (const property in this.CSS.focusVertex)
+                css[property] = this.CSS.focusVertex[property];
+            drawVertex(ctx, this.focusVertex, css);
         }
         
         // draw selected vertices
         this.selectedVertices.forEach(vertex => {
-            drawVertex(ctx, vertex, this.CSS().selectedVertex)
+            const css = {...this.getVertexCSS(vertex)};
+            for (const property in this.CSS.selectedVertex)
+                css[property] = this.CSS.selectVertex[property];
+            drawVertex(ctx, vertex, css)
         });
 
         // draw selected edges
         this.selectedEdges.forEach(edge => {
-            drawEdge(ctx, edge, this.CSS().selectedEdge);
+            const css = {...this.getEdgeCSS(edge)};
+            for (const property in this.CSS.selectedEdge)
+                css[property] = this.CSS.selectedEdge[property];
+            drawEdge(ctx, edge, css);
         });
     }
 
@@ -1131,7 +1679,7 @@ export class GraphDrawing {
         this.canvas.addEventListener(event, function(e) {
             const vertex = self.vertexOn(e.offsetX, e.offsetY);
             if (vertex != undefined)
-                handler(vertex);
+                handler(vertex, e);
         });
     }
 
@@ -1233,20 +1781,48 @@ export class GraphDrawing {
             }
         });
     }
-    
-    CSS() {
-        return {
-            defaultEdge: {
+
+    editValueOnClick() {
+        const self = this;
+        this.onVertexClick(function(vertex) {
+            const input = document.createElement("input");
+            input.type = "text";
+            input.style.position = 'fixed';
+            const [x, y] = self.vertexPosition[vertex];
+            const canvasRect = self.canvas.getBoundingClientRect();
+            input.style.textAlign = "center";
+            input.style.width = 30 + "px";
+            input.style.height = 20 + "px";
+            input.style.left = canvasRect.left + x - 18 + 'px';
+            input.style.top = canvasRect.top + y - 12 + 'px';
+            document.body.appendChild(input);
+            input.focus();
+            input.onblur = function() {
+                self.setVertexContent(vertex, input.value);
+                document.body.removeChild(input);
+            }
+        });
+    }
+
+    setCSS() {
+        this.CSS = {
+            edge: {
                 width: 1,
-                color: "black"
+                color: "black",
+                curvature: 0
             },
             
-            defaultVertex: {
-                color: "white"
+            vertex: {
+                color: "white",
+                size: 15,
+                fontFamily: "Arial",
+                fontSize: "15px",
+                labelSize: "13px",
+                labelColor: "black",
+                labelBackground: false
             },
 
             focusEdge: {
-                width: 1,
                 color: "#bbbbbb"
             },
 
@@ -1274,12 +1850,33 @@ export class CommandSetEdgeCSS {
     }
 
     doCommand() {
-        this.undo = this.graphDrawing.getEdgeCSS(this.edge);
+        this.undo = {...this.graphDrawing.getEdgeCSS(this.edge)};
         this.graphDrawing.setEdgeCSS(this.edge, this.css);
     }
 
     undoCommand() {
-        this.graphDrawing.setEdgeCSS(this.edge, this.undo);
+        this.graphDrawing.removeEdgeCSS(this.edge);
+        if (this.undo != undefined)
+            this.graphDrawing.setEdgeCSS(this.edge, this.undo);
+    }
+}
+
+export class CommandResetAllVertexCSS {
+    constructor(graphDrawing) {
+        this.graphDrawing = graphDrawing;
+    }
+
+    doCommand() {
+        this.undo = new Array(this.graphDrawing.numVertices());
+        for (let v = 0; v < this.graphDrawing.numVertices(); v++) {
+            this.undo[v] = this.graphDrawing.getVertexCSS(v);
+            this.graphDrawing.removeVertexCSS(v);
+        }
+    }
+
+    undoCommand() {
+        for (let v = 0; v < this.graphDrawing.numVertices(); v++)
+            this.graphDrawing.setVertexCSS(v, this.undo[v]);
     }
 }
 
@@ -1291,11 +1888,12 @@ export class CommandSetVertexCSS {
     }
 
     doCommand() {
-        this.undo = this.graphDrawing.getVertexCSS(this.vertex);
+        this.undo = {...this.graphDrawing.getVertexCSS(this.vertex)};
         this.graphDrawing.setVertexCSS(this.vertex, this.css);
     }
 
     undoCommand() {
+        this.graphDrawing.removeVertexCSS(this.vertex);
         this.graphDrawing.setVertexCSS(this.vertex, this.undo);
     }
 }
@@ -1317,61 +1915,27 @@ export class CommandSetVertexLabel {
     }
 }
 
-export class GraphCommands {
+export class CommandSetVertexContent {
+    constructor(graphDrawing, vertex, content) {
+        this.graphDrawing = graphDrawing;
+        this.vertex = vertex;
+        this.content = content;
+    }
+
+    doCommand() {
+        this.undo = this.graphDrawing.getVertexContent(this.vertex);
+        this.graphDrawing.setVertexContent(this.vertex, this.content);
+    }
+
+    undoCommand() {
+        this.graphDrawing.setVertexContent(this.vertex, this.undo);
+    }
+}
+
+import { Commands } from './commands.js';
+
+export class GraphCommands extends Commands {
     constructor(commands) {
-        this.commands = commands;
-        this.current = 0;
-    }
-
-    reset() {
-        while (this.inProgres()) {
-            this.current--;
-            this.undoCurrentCommand();
-        }
-    }
-
-    inProgres() {
-        return this.current > 0;
-    }
-
-    done() {
-        return this.current >= this.commands.length;
-    }
-
-    next() {
-        if (this.done())
-            return false;
-        this.doCurrentCommand();
-        this.current++;
-        return true;
-    }
-
-    doCurrentCommand() {
-        if (Array.isArray(this.commands[this.current]))
-            this.commands[this.current].forEach(command => command.doCommand());
-        else
-            this.commands[this.current].doCommand();
-    }
-
-    undoCurrentCommand() {
-        if (Array.isArray(this.commands[this.current]))
-            this.commands[this.current].forEach(command => command.undoCommand());
-        else
-            this.commands[this.current].undoCommand();
-    }
-
-    previous() {
-        if (this.current == 0)
-            return false;
-        --this.current;
-        this.undoCurrentCommand();
-        return true;
-    }
-
-    run() {
-        while (!this.done()) {
-            this.doCurrentCommand();
-            this.current++;
-        }
+        super(commands);
     }
 }

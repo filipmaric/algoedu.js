@@ -1,0 +1,120 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Binarno stablo pretrage</title>
+    <meta charset="utf-8" />
+    <style>
+      canvas {
+          border: 1px solid black;
+          user-select: none;
+          margin-left: auto;
+          margin-right: auto;
+      }
+      
+      body {
+          margin-left: auto;
+          margin-right: auto;
+          width: 800px;
+      }
+
+      table {
+          border-collapse: collapse;
+          margin-bottom: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Binarno stablo pretrage</h1>
+
+    <p>Kliknite na čvor ispod kog će novi element biti unet u
+      stablo. Ako će čvor biti unet levo od tog čvora, kliknite levim
+      dugmetom miša, a u suprotnom kliknite desnim dugmetom miša.</p>
+
+    <p><b>Novi element:</b> <span id='newElement'></span></p>
+
+    <canvas id="graph" width="400" height="400">
+    </canvas>
+
+    <script src="../dist/Graph.js"></script>
+    <script>
+      const canvas = document.getElementById("graph");
+      canvas.oncontextmenu = () => false;
+      const width = canvas.width;
+      const height = canvas.height;
+      const tree = new Graph.BinaryTree();
+      const graphDrawing = new Graph.GraphDrawing(tree, canvas);
+
+      class Node {
+          constructor(num, vertex) {
+              this.num = num;
+              this.vertex = vertex;
+              this.left = this.right = null;
+          }
+      }
+      
+      function insert(parent, side, node, num) {
+          if (node == null) {
+              const n = graphDrawing.addVertex(num);
+              graphDrawing.setVertexContent(n, num);
+              if (parent != null) {
+                  if (side == "left") 
+                      tree.setLeftChild(parent.vertex, n);
+                  else
+                      tree.setRightChild(parent.vertex, n);
+              }
+              return new Node(num, n);
+          }
+
+          if (num <= node.num)
+              node.left = insert(node, "left", node.left, num);
+          else
+              node.right = insert(node, "right", node.right, num);
+
+          return node;
+      }
+
+      function whereToInsert(parent, side, node, num) {
+          if (node == null)
+              return {num: parent.num, side: side};
+          if (num <= node.num)
+              return whereToInsert(node, "left", node.left, num);
+          else
+              return whereToInsert(node, "right", node.right, num);
+      }
+
+      let root = null;
+      for (let i = 0; i < 5; i++) {
+          const x = Math.floor(Math.random()*100);
+          root = insert(null, "", root, x);
+      }
+      const margin = 10;
+      graphDrawing.treeArrangementNeighbours(0, tree.neighbours, margin, margin, width - 2*margin, height - 2*margin);
+      graphDrawing.draw();
+
+      const newElement = document.getElementById('newElement');
+      function noviZadatak() {
+          newElement.innerHTML = Math.floor(Math.random()*100);
+      }
+
+      noviZadatak();
+
+      graphDrawing.onVertexEvent("mouseup", function(vertex, e) {
+          const vertexNum = parseInt(graphDrawing.getVertexContent(vertex));
+          const newNum = parseInt(newElement.innerHTML);
+          const where = whereToInsert(null, "", root, newNum);
+          side = {"left": 0, "right": 2};
+          if (where.num == vertexNum && side[where.side] == e.button) {
+              root = insert(null, "", root, newNum);
+              graphDrawing.treeArrangementNeighbours(0, tree.neighbours, margin, margin,
+                                                     width - 2*margin, height - 2*margin);
+              graphDrawing.draw();
+              
+              noviZadatak();
+          } else {
+              alert("Netačno. Pokušajte ponovo")
+          }
+      });
+      
+    </script>
+  </body>
+</html>

@@ -1,0 +1,88 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Prefix tree</title>
+    <meta charset="utf-8" />
+    <style>
+      canvas {
+          border: 1px solid black;
+          user-select: none;
+          margin-left: auto;
+          margin-right: auto;
+      }
+      body {
+          margin-left: auto;
+          margin-right: auto;
+          width: 800px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Prefix tree</h1>
+    <canvas id="graph" width="500" height="500">
+    </canvas>
+
+    <p>
+    <input type='text' id='word'></input>
+    <button id='btnInsert'>Unesi reč</button>
+    </p>
+
+    <script src="../dist/Graph.js"></script>
+    <script>
+      const canvas = document.getElementById("graph");
+      const graph = new Graph.Graph(1);
+      const graphDrawing = new Graph.GraphDrawing(graph, canvas);
+      const w = graphDrawing.canvas.width(), h = graphDrawing.canvas.height();
+      graphDrawing.treeArrangement(0, [], 0, 0, w, h);
+      graphDrawing.draw();
+
+      var CSS = {
+          endVertex: {
+              color: "#eeeeee"
+          }
+      };
+
+      function insert(vertex, word) {
+          for (let i = 0; i < word.length; i++) {
+              let newVertex = graphDrawing.addVertex();
+              graph.addEdge(vertex, newVertex);
+              graphDrawing.setEdgeLabel([vertex, newVertex], word[i])
+              vertex = newVertex;
+          }
+          graphDrawing.setVertexCSS(vertex, CSS.endVertex);
+      }
+
+      function find(word) {
+          let vertex = 0;
+          for (let i = 0; i < word.length; i++) {
+              const neighbours = graph.getNeighbours(vertex);
+              let found = false;
+              for (let j = 0; j < neighbours.length; j++)
+                  if (graphDrawing.getEdgeLabel([vertex, neighbours[j]]) == word[i]) {
+                      vertex = neighbours[j];
+                      found = true;
+                      break;
+                  }
+              if (!found)
+                  return {"vertex": vertex, "word": word.substr(i)};
+          }
+          return {"vertex": vertex, "word": ""};
+      }
+
+      function draw() {
+          let treeEdges = graph.dfsTree(0);
+          graphDrawing.treeArrangement(0, treeEdges, 0, 0, w, h);
+          graphDrawing.draw();
+      }
+
+
+      document.getElementById("btnInsert").addEventListener("click", function() {
+          const word = document.getElementById('word').value;
+          const f = find(word);
+          insert(f.vertex, f.word);
+          draw();
+      })
+      
+    </script>
+  </body>
+</html>

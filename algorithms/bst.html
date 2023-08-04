@@ -1,0 +1,86 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Binarno stablo pretrage</title>
+    <meta charset="utf-8" />
+    <style>
+      canvas {
+          border: 1px solid black;
+          user-select: none;
+          margin-left: auto;
+          margin-right: auto;
+      }
+      
+      body {
+          margin-left: auto;
+          margin-right: auto;
+          width: 800px;
+      }
+
+      table {
+          border-collapse: collapse;
+          margin-bottom: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Binarno stablo pretrage</h1>
+
+    <p>Unesite elemente u stablo</p>
+    <p><input type="text" id="num"></input><button id="insert">Unesi</button></p>
+    
+    <canvas id="graph" width="400" height="400">
+    </canvas>
+    
+    <script src="../dist/Graph.js"></script>
+    <script>
+      const canvas = document.getElementById("graph");
+      const width = canvas.width;
+      const height = canvas.height;
+      const tree = new Graph.BinaryTree();
+      const graphDrawing = new Graph.GraphDrawing(tree, canvas);
+
+      class Node {
+          constructor(num, vertex) {
+              this.num = num;
+              this.vertex = vertex;
+              this.left = this.right = null;
+          }
+      }
+      
+      function insert(parent, side, node, num) {
+          if (node == null) {
+              const n = graphDrawing.addVertex(num);
+              graphDrawing.setVertexContent(n, num);
+              if (parent != null) {
+                  if (side == "left") 
+                      tree.setLeftChild(parent.vertex, n);
+                  else
+                      tree.setRightChild(parent.vertex, n);
+              }
+              return new Node(num, n);
+          }
+
+          if (num <= node.num)
+              node.left = insert(node, "left", node.left, num);
+          else
+              node.right = insert(node, "right", node.right, num);
+
+          return node;
+      }
+
+      let root = null;
+
+      btnInsert = document.getElementById("insert");
+      btnInsert.addEventListener("click",
+                                 function() {
+                                     const num = parseInt(document.getElementById("num").value);
+                                     root = insert(null, "", root, num);
+                                     const k = 10;
+                                     graphDrawing.treeArrangementNeighbours(0, tree.neighbours, k, k, width - 2*k, height - 2*k);
+                                     graphDrawing.draw();
+                                 });
+      
+    </script>
+  </body>
+</html>

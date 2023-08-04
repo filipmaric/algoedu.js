@@ -37,7 +37,7 @@
       <button id="btnDFSPrev">Претходни корак у DFS обиласку</button>
       <button id="btnDFSNext">Следећи корак у DFS обиласку</button>
     </p>
-    </p>
+    <p>
       <button id="btnDFSAnimate">Прикажи анимацију DFS обиласка</button>
     </p>
     <p>
@@ -128,7 +128,7 @@
       const btnDFSTree = document.getElementById("btnDFSTree");
       btnDFSTree.addEventListener("click", function() {
           // execute DFS algorithm
-          var dfsTreeEdges = graph.dfs(0).filter(item => item.length == 2);
+          const dfsTreeEdges = graph.dfsTree(0);
           // arrange vertices
           graphDrawing.treeArrangement(0, dfsTreeEdges, 0, 0, w, h);
       });
@@ -154,7 +154,7 @@
 
       var btnDFSCheck = document.getElementById("btnDFSCheck");
       btnDFSCheck.addEventListener("click", function() {
-          const treeEdges = graph.dfs(0).filter(item => item.length == 2);
+          const treeEdges = graph.dfsTree(0);
           let correctDFSOrder = treeEdges.map(edge => edge[1]);
           correctDFSOrder.unshift(treeEdges[0][0]);
           const givenDFSOrder = graphDrawing.vertexOrderByLabel();

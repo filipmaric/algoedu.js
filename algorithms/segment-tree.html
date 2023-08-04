@@ -1,0 +1,190 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Segment tree</title>
+    <meta charset="utf-8" />
+    <style>
+      canvas {
+          border: 1px solid black;
+          user-select: none;
+          margin-left: auto;
+          margin-right: auto;
+      }
+      body {
+          margin-left: auto;
+          margin-right: auto;
+          width: 800px;
+      }
+
+      table {
+          border-collapse: collapse;
+          margin-bottom: 10px;
+      }
+
+      td {
+          width: 30px;
+          height: 30px;
+          text-align: center;
+      }
+
+      td[data-selected="true"] {
+          border-width: 3px ! important;
+      }
+
+      td.active {
+          background-color: #ddddff
+      }
+
+      td.inSum {
+          font-weight: bold;
+          background-color: #ffffdd;
+      }
+
+      td.active.inSum {
+          background-color: #ddffdd;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Segment tree</h1>
+    <p>Originalni niz</p>
+    <p>Odaberite segment čiji zbir želite da izračunate</p>
+    <table id="tblArray"></table>
+
+    <p>Segmentno drvo:</p>
+    <canvas id="graph" width="800" height="300">
+    </canvas>
+    <table id="tblSegmentTree"></table>
+    
+    <p>
+      <button id="btnPrev">Претходни корак</button>
+      <button id="btnNext">Следећи корак</button>
+    </p>
+    
+    <script src="../dist/Graph.js"></script>
+    <script src="../dist/Arrays.js"></script>
+    <script>
+      function randInt(a, b) {
+          return a + Math.floor(Math.random() * (b - a));
+      }
+      
+      function randomArray(n, a, b) {
+          let arr = [];
+          for (var i = 0; i < n; i++)
+              arr.push(randInt(a, b));          
+          return arr;
+      }
+
+      const n = 16;
+      
+      const canvas = document.getElementById("graph");
+      const graph = new Graph.Graph(2*n-1);
+      const graphDrawing = new Graph.GraphDrawing(graph, canvas);
+      const w = graphDrawing.canvas.width(), h = graphDrawing.canvas.height();
+
+      const arr = randomArray(n, 1, 10);
+      const segmentTree = Array(2*n);
+      segmentTree[0] = "";
+      for (let i = 0; i < n; i++) {
+          segmentTree[i+n] = arr[i];
+          graphDrawing.setVertexContent(i+n-1, segmentTree[i+n]);
+          graphDrawing.setVertexLabel(i+n-1, i+n);
+      }
+      for (let k = n-1; k >= 1; k--) {
+          segmentTree[k] = segmentTree[2*k] + segmentTree[2*k+1];
+          graphDrawing.setVertexContent(k-1, segmentTree[k]);
+          graphDrawing.setVertexLabel(k-1, k);
+          graph.addEdge(k-1, 2*k-1);
+          graph.addEdge(k-1, 2*k);
+      }
+
+      const treeEdges = graph.dfsTree(0);
+      k=0.02;
+      graphDrawing.treeArrangement(0, treeEdges, k*w, 0, (1-2*k)*w, h);
+      graphDrawing.draw();
+
+      const tblArray = document.getElementById("tblArray");
+      const arrDisplay = new Arrays.ArrayDisplay(arr, tblArray);
+      const tblSegmentTree = document.getElementById("tblSegmentTree");
+      const segmentTreeDisplay = new Arrays.ArrayDisplay(segmentTree, tblSegmentTree);
+
+      var CSS = {
+          disjunct:  {
+              color: "red"
+          },
+          contained: {
+              color: "green"
+          },
+          overlap: {
+              color: "gray"
+          },
+          inSum: {
+              color: "#ddddff"
+          }
+      };
+      
+      function zbirRek(k, x, y, a, b) {
+          const arrayCommands = [new Arrays.CommandArrayRemoveAllCSSClasses(segmentTreeDisplay, "active"), new Arrays.CommandArrayAddCSSClass(segmentTreeDisplay, k, "active")];
+          for (let i = x; i <= y; i++)
+              arrayCommands.push(new Arrays.CommandArrayAddCSSClass(segmentTreeDisplay, i+n, "active"));
+          arrayCommands.push(new Arrays.CommandArraySetPointer(segmentTreeDisplay, "x", x+n));
+          arrayCommands.push(new Arrays.CommandArraySetPointer(segmentTreeDisplay, "y", y+n));
+          arrayCommands.push(new Arrays.CommandArraySetPointer(segmentTreeDisplay, "k", k));
+          
+          if (b < x || a > y)
+              return [[new Graph.CommandSetVertexCSS(graphDrawing, k-1, CSS.disjunct)].concat(arrayCommands)];
+          if (a <= x && y <= b)
+              return [[new Graph.CommandSetVertexCSS(graphDrawing, k-1, CSS.contained)].concat(arrayCommands)];
+          const s = Math.floor((x + y) / 2);
+          
+          return [[new Graph.CommandSetVertexCSS(graphDrawing, k-1, CSS.overlap)].concat(arrayCommands)].concat(zbirRek(2*k, x, s, a, b).concat(zbirRek(2*k+1, s+1, y, a, b)));
+      }
+
+      function zbir(a, b) {
+          if (a > b)
+              [a, b] = [b, a];
+          for (let i = a; i <= b; i++) {
+              graphDrawing.setVertexCSS(i+n-1, CSS.inSum);
+              segmentTreeDisplay.addCSSClass(i+n, "inSum");
+          }
+          segmentTreeDisplay.setPointer("a", a+n);
+          segmentTreeDisplay.setPointer("b", b+n);
+          return new Graph.GraphCommands(zbirRek(1, 0, n-1, a, b));
+      }
+
+      let commands = null;
+      
+      const btnNext = document.getElementById("btnNext");
+      btnNext.addEventListener("click", function() {
+          if (commands)
+              commands.next();
+      });
+
+      const btnPrev = document.getElementById("btnPrev");
+      btnPrev.addEventListener("click", function() {
+          if (commands)
+              commands.previous();
+      });
+      
+      let startCell = undefined;
+      arrDisplay.onValueClick(function(value, index) {
+          if (startCell == undefined) {
+              commands = null;
+              graphDrawing.removeAllVertexCSS();
+              arrDisplay.removeAllCSSClasses();
+              arrDisplay.addCSSClass(index, "active");
+              startCell = index;
+          } else {
+              let endCell = index;
+              if (startCell > endCell)
+                  [startCell, endCell] = [endCell, startCell]; 
+              for (let i = startCell; i <= endCell; i++)
+                  arrDisplay.addCSSClass(i, "active");
+              commands = zbir(startCell, endCell);
+              startCell = undefined;
+          }
+      });
+      
+    </script>
+  </body>
+</html>

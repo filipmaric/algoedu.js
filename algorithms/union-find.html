@@ -22,6 +22,10 @@
     <canvas id="graph" width="500" height="500">
     </canvas>
 
+    <p>
+      Двоструким кликом на чворове бирај парове чворова који се унирају.
+    </p>
+
     <p>Одаберите начин на који се врши унија:</p>
     <input type="radio" id="none" name="union_by" value="none" checked>
     <label for="none">од првом ка другом дрвету</label><br>
@@ -109,6 +113,7 @@
               return;
 
           if (type == 'none')
+              [a, b] = [b, a];
 
           if (type == 'rank' && rank[a] < rank[b])
               [a, b] = [b, a];
@@ -116,7 +121,7 @@
           if (type == 'size' && size[a] < size[b])
               [a, b] = [b, a];
           
-          graph.removeEdge(a, a);
+          graph.removeEdge(b, b);
           graph.addEdge(b, a);
           reverseGraph.addEdge(a, b);
           parent[b] = a;
@@ -144,7 +149,7 @@
                   const col = component - row * cols;
                   const x0 = col * w / cols;
                   const y0 = row * h / rows;
-                  const tree = reverseGraph.dfs(i).filter(item => item.length == 2);
+                  const tree = reverseGraph.dfsTree(i);
                   vertexPosition = graphDrawing.treeArrangementPosition(vertexPosition, i, tree, x0, y0, w / cols, h / rows, false)
                   component++;
               }
@@ -166,6 +171,7 @@
       });
 
       document.getElementById('none').addEventListener('click', function() {
+          type = 'none';
           init();
           draw();
       });

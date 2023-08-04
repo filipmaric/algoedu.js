@@ -1,0 +1,147 @@
+<!doctype html>
+<html>
+  <head>
+    <title>DFS</title>
+    <meta charset="utf-8" />
+    <style>
+      canvas {
+          border: 1px solid black;
+          user-select: none;
+          margin-left: auto;
+          margin-right: auto;
+      }
+      body {
+          margin-left: auto;
+          margin-right: auto;
+          width: 800px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>DFS numeracija</h1>
+    <canvas id="graph" width="400" height="400">
+    </canvas>
+    <p>
+      Aplet demonstrira dolaznu i odlaznu DFS numeraciju.
+    </p>
+    <p>
+      <button id="btnDFSPrev">Prethodni korak u DFS obilasku</button>
+      <button id="btnDFSNext">Sledeći korak u DFS obilasku</button>
+    </p>
+    <p>
+      <button id="btnDFSReset">Poništi sve</button>
+    </p>
+    <p>Prikaz čvorova u obliku DFS drveta pomaže razumevanje DFS algoritma i DFS numeracije</p>
+    <p>
+      <button id="btnDFSTree">Prikaži DFS drvo</button>
+    </p>
+    </div>
+
+    <script src="../dist/Graph.js"></script>
+    <script>
+      const m = 3, n = 3;
+      const canvas = document.getElementById("graph");
+      const graph = new Graph.Graph(m*n, false);
+      graph.randomConnectedLatticeGraph(m, n, Math.floor(1.2*m*n));
+      const graphDrawing = new Graph.GraphDrawing(graph, canvas);
+      const w = graphDrawing.canvas.width(), h = graphDrawing.canvas.height();
+      k = 0.1
+      graphDrawing.latticeArrangement(m, n, k*w, k*h, (1-2*k)*w, (1-2*k)*h);
+      graphDrawing.showFocusVertex();
+      graphDrawing.showFocusEdge();
+      graphDrawing.dragFocusVertex();
+      graphDrawing.orderVerticesDblClick();
+      graphDrawing.draw();
+      
+      var CSS = {
+          activeEdge: {
+              width: 4,
+              color: "blue"
+          },
+      
+          treeEdge: {
+              width: 2,
+              color: "blue"
+          },
+
+          visitedVertex: {
+              color: "#DDDDFF"
+          },
+
+          activeVertex: {
+              color: "blue"
+          },
+
+          returnVertex: {
+              color: "#9999FF"
+          },
+      };
+
+      function dfsVisualization(dfsTrace, numVertices) {
+          const commands = [];
+          let activeEdge = undefined;
+          const inOrder = new Array(numVertices).fill(-1);
+          const outOrder = new Array(numVertices).fill(-1);
+          const stack = [];
+          let inOrderNum = 0;
+          let outOrderNum = 0;
+          const start = dfsTrace[0][0];
+          stack.push(start);
+          inOrder[start] = inOrderNum++;
+          commands.push([new Graph.CommandSetVertexCSS(graphDrawing, start, CSS.visitedVertex),
+                         new Graph.CommandSetVertexLabel(graphDrawing, start, inOrder[start])]);
+          for (let i = 0; i < dfsTrace.length; i++) {
+              const stepCommands = [];
+              if (activeEdge)
+                  stepCommands.push(new Graph.CommandSetEdgeCSS(graphDrawing, activeEdge, CSS.treeEdge));
+              if (dfsTrace[i].length == 2) {
+                  activeEdge = dfsTrace[i];
+                  const [from, to] = dfsTrace[i];
+                  stack.push(to);
+                  inOrder[to] = inOrderNum++;
+                  stepCommands.push(new Graph.CommandSetVertexCSS(graphDrawing, to, CSS.visitedVertex));
+                  stepCommands.push(new Graph.CommandSetVertexLabel(graphDrawing, to, inOrder[to]));
+                  stepCommands.push(new Graph.CommandSetEdgeCSS(graphDrawing, activeEdge, CSS.activeEdge));
+              } else if (dfsTrace[i].length == 1) {
+                  const to = stack.pop();
+                  outOrder[to] = outOrderNum++;
+                  stepCommands.push(new Graph.CommandSetVertexCSS(graphDrawing, to, CSS.returnVertex));
+                  stepCommands.push(new Graph.CommandSetVertexLabel(graphDrawing, to, inOrder[to] + "/" + outOrder[to]));
+              }
+              commands.push(stepCommands);
+          }
+          outOrder[start] = outOrderNum++;
+          commands.push([
+              new Graph.CommandSetVertexCSS(graphDrawing, start, CSS.returnVertex),
+              new Graph.CommandSetVertexLabel(graphDrawing, start, inOrder[start] + "/" + outOrder[start])]);
+          return new Graph.GraphCommands(commands);
+      }
+      
+      const commands = dfsVisualization(graph.dfs(0), graph.numVertices());
+
+      const btnDFSTree = document.getElementById("btnDFSTree");
+      btnDFSTree.addEventListener("click", function() {
+          // execute DFS algorithm
+          const dfsTreeEdges = graph.dfsTree(0);
+          // arrange vertices
+          graphDrawing.treeArrangement(0, dfsTreeEdges, 0, 0, w, h);
+      });
+
+      const btnDFSNext = document.getElementById("btnDFSNext");
+      btnDFSNext.addEventListener("click", function() {
+          commands.next();
+      });
+
+      const btnDFSPrev = document.getElementById("btnDFSPrev");
+      btnDFSPrev.addEventListener("click", function() {
+          commands.previous();
+      });
+
+
+      btnDFSReset.addEventListener("click", function() {
+          commands.reset();
+          graphDrawing.removeAllVertexLabels();
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,154 @@
+<html>
+  <head>
+    <style>
+      body {
+          font-family: Arial;
+          width: 600px;
+          margin: auto;
+      }
+      
+      table {
+          border-collapse: collapse;
+          margin-bottom: 10px;
+      }
+
+      td {
+          width: 30px;
+          height: 30px;
+          text-align: center;
+      }
+
+      td[data-selected="true"] {
+          border-width: 3px ! important;
+      }
+
+
+      .active {
+          background-color: rgb(255, 255, 179);
+          font-weight: bold;
+      }
+
+      h3 {
+          margin-bottom: 0;
+          margin-top: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <h3>Originalni niz</h3>
+    <table id="array">
+    </table>
+
+    <h3>Niz razlika susednih elemenata</h3>
+    <table id="differences">
+    </table>
+
+    <h3>Promene</h3>
+    <ul id="changes">
+    </ul>
+    <button id="btnNext">Obradi sledeću promenu</button>
+    <button id="btnPrev">Vrati se na prethodni korak</button>
+
+    <script src="../dist/Arrays.js"></script>
+    <script>
+      function randInt(a, b) {
+          return a + Math.floor(Math.random() * (b - a));
+      }
+      
+      function randomArray(n, a, b) {
+          let arr = [];
+          for (var i = 0; i < n; i++)
+              arr.push(randInt(a, b));          
+          return arr;
+      }
+
+      function array2diff(arr) {
+          const diff = Array(arr.length);
+          diff[0] = arr[0];
+          for (let i = 1; i < arr.length; i++)
+              diff[i] = arr[i] - arr[i-1];
+          return diff;
+      }
+      
+      class DifferencesAnimation {
+          constructor(arr, tblArr, tblDiff, ulChanges) {
+              this.arr = new Arrays.ArrayDisplay(arr, tblArr);
+              this.diff = new Arrays.ArrayDisplay(array2diff(arr), tblDiff);
+              this.ulChanges = ulChanges;
+              this.generateChanges();
+              this.generateCommands();
+              this.i = 0;
+          }
+
+          generateChanges() {
+              const n = this.arr.length;
+              this.changes = [];
+              for (let i = 0; i < 10; i++) {
+                  const a = randInt(0, n-2);
+                  const b = randInt(a+1, n-1);
+                  let c = randInt(1, 5);
+                  this.changes.push([a, b, c]);
+              }
+              
+              for (let i = 0; i < this.changes.length; i++) {
+                  const [a, b, c] = this.changes[i];
+                  const li = document.createElement("li");
+                  li.innerHTML = "[" + a + "-" + b + "]" +  " → " + (c > 0 ? "+" : "") + c;
+                  this.ulChanges.append(li);
+              }
+          }
+
+          generateCommands() {
+              const commands = []
+              for (let i = 0; i < this.changes.length; i++) {
+                  const [a, b, c] = this.changes[i];
+                  const stepCommands = [];
+                  stepCommands.push(new Arrays.CommandArrayRemoveAllCSSClasses(this.arr, "active"));
+                  stepCommands.push(new Arrays.CommandArrayRemoveAllCSSClasses(this.diff, "active"));
+                  stepCommands.push(new Arrays.CommandArrayIncrementValue(this.diff, a, c));
+                  stepCommands.push(new Arrays.CommandArrayAddCSSClass(this.diff, a, "active"));
+                  if (b+1 < this.diff.length) {
+                      stepCommands.push(new Arrays.CommandArrayIncrementValue(this.diff, b+1, -c));
+                      stepCommands.push(new Arrays.CommandArrayAddCSSClass(this.diff, b+1, "active"));
+                  }
+                  for (let i = a; i <= b; i++) {
+                      stepCommands.push(new Arrays.CommandArrayIncrementValue(this.arr, i, c));
+                      stepCommands.push(new Arrays.CommandArrayAddCSSClass(this.arr, i, "active"));
+                  }
+                  commands.push(stepCommands);
+              }
+              this.commands = new Arrays.ArrayCommands(commands);
+          }
+      
+          next() {
+              this.commands.next();
+              if (this.i < this.changes.length)
+                  this.ulChanges.getElementsByTagName("li")[this.i++].classList.add("active");
+          }
+          
+          prev() {
+              this.commands.previous();
+              if (this.i > 0)
+                  this.ulChanges.getElementsByTagName("li")[--this.i].classList.remove("active");
+          }
+          
+      }
+      
+      let arr = Array(20).fill(0);
+      const tableArray = document.getElementById("array");
+      const tableDifferences = document.getElementById("differences");
+      const ulChanges = document.getElementById("changes");
+      const animation = new DifferencesAnimation(arr, tableArray, tableDifferences, changes);
+
+      const btnNext = document.getElementById("btnNext");
+      btnNext.addEventListener("click", function() {
+          animation.next();
+      });
+
+      const btnPrev = document.getElementById("btnPrev");
+      btnPrev.addEventListener("click", function() {
+          animation.prev();
+      });
+    </script>
+  </body>
+</html>
