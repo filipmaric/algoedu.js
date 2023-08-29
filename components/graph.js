@@ -1,16 +1,36 @@
 import { hsvColor } from './colors.js';
-import { shuffle } from './util.js';
+import { shuffle, random, render } from './util.js';
 import { UnionFind } from './union_find.js';
 
+function distance(ax, ay, bx, by) { 
+    return Math.sqrt((ax - bx)*(ax - bx) + (ay - by)*(ay - by));
+}
+
 export class Graph {
-    constructor(n=0, directed=true) {
+    constructor(directed=true, n=0) {
         this.directed = directed;
         this.weighted = false;
         this.emptyGraph(n);
     }
 
+    static directed(n=0) {
+        return new Graph(true, n);
+    }
+
+    static undirected(n=0) {
+        return new Graph(false, n);
+    }
+    
     numVertices() {
         return this.neighbours.length;
+    }
+
+    numEdges() {
+        return this.getEdges().length;
+    }
+
+    getVertices() {
+        return Array.from({ length: this.numVertices()}, (_, index) => index);
     }
 
     addVertex() {
@@ -34,6 +54,25 @@ export class Graph {
         return this.neighbours[i].includes(j);
     }
 
+    addEdges(edges) {
+        edges.forEach(edge => this.addEdge(...edge));
+    }
+
+    addEdgesStr(edges) {
+        function toNumber(input) {
+            if (/^\d+$/.test(input)) {
+                return parseInt(input);
+            } else if (/^[A-Z]$/.test(input)) {
+                return input.charCodeAt(0) - 'A'.charCodeAt(0);
+            }
+        }
+        const pairs = edges.split(',').map(pair => pair.split('-'));
+        for (const pair of pairs) {
+            const [from, to] = pair;
+            this.addEdge(toNumber(from), toNumber(to));
+        }
+    }
+
     getEdges() {
         if (this.directed)
             return this.neighbours.map((ns, v) => ns.map(n => [v, n])).flat(1);
@@ -41,75 +80,232 @@ export class Graph {
             return this.neighbours.map((ns, v) => ns.map(n => [v, n])).flat(1).filter(edge => edge[0] <= edge[1]);
     }
 
-    getNeighbours(i) {
-        return this.neighbours[i];
+    // in undirected graphs, edges are sorted, and in directed graphs edges are unchanged
+    normalizeEdge(edge) {
+        if (!this.directed && edge[0] > edge[1])
+            return [edge[1], edge[0]];
+        return edge;
     }
 
-    emptyGraph(n) {
-        this.neighbours = Array.from({length: n}, () => []);
+    getNeighbours(i) {
+        return this.neighbours[i];
     }
 
     sortNeighbours() {
         for (let i = 0; i < this.neighbours.length; i++)
             this.neighbours[i].sort((a, b) => a-b);
     }
-    
-    fullGraph(n) {
-        if (n === undefined)
-            n = this.numVertices();
-        this.emptyGraph(n);
+
+    degree() {
+        return this.neighbours.map(n => n.length);
+    }
+
+    outdegree() {
+        return this.neighbours.map(n => n.length);
+    }
+
+    indegree() {
+        const indeg = new Array(this.numVertices()).fill(0);
+        this.neighbours.forEach(n => n.forEach(v => indeg[v]++));
+        return indeg;
+    }
+
+    // GENERATING GRAPHS
+
+    // graph with no edges
+    emptyGraph(n) {
+        this.neighbours = Array.from({length: n}, () => []);
+    }
+
+    // all edges of a full graph (without loops)
+    static fullGraphEdges(n, directed=false) {
+        const edges = [];
         for (let i = 0; i < n; i++)
-            for (let j = 0; j < n; j++)
-                if (i < j)
-                    this.addEdge(i, j);
+            for (let j = 0; j < n; j++) {
+                if (i == j) continue;
+                if (i < j || directed)
+                    edges.push([i, j]);
+            }
+        return edges;
+    }
+
+    // full graph with all possible edges
+    fullGraph(numVertices) {
+        if (numVertices === undefined)
+            numVertices = this.numVertices();
+        this.emptyGraph(numVertices);
+        this.addEdges(Graph.fullGraphEdges(numVertices, this.directed));
         this.sortNeighbours();
     }
-    
-    randomGraph(n, prob=0.25) {
-        if (n === undefined)
-            n = this.numVertices();
-        
-        this.emptyGraph(n);
-        for (let i = 0; i < n; i++) {
-            for (let j = 0; j < n; j++)
-                if (i != j && (i < j || !this.hasEdge(j, i)) && Math.random() < (i == 0 ? 2*prob : prob))
-                    this.addEdge(i, j);
-            if (this.getNeighbours(i).length == 0) {
-                let j;
-                do {
-                    j = Math.floor(Math.random() * n);
-                } while (j == i);
-                this.addEdge(i, j);
+
+    // random graph with numVertices vertices, numEdges edges and
+    // edges chosen from a given set of edges
+    randomSubgraph(numVertices, numEdges, edges) {
+        this.emptyGraph(numVertices);
+        shuffle(edges);
+        this.addEdges(edges.slice(0, numEdges));
+        this.sortNeighbours();
+    }
+
+    // random graph with numVertices vertices and numEdges edges
+    randomGraph(numVertices, numEdges) {
+        const edges = Graph.fullGraphEdges(numVertices, this.directed);
+        this.randomSubgraph(numVertices, numEdges, edges);
+    }
+
+    // random graph with numComponents connected components where
+    // each component has between 1 and maxComponent vertices
+    randomDisconnectedGraph(numComponents, maxComponent) {
+        const card = new Array(numComponents);
+        for (let i = 0; i < numComponents; i++)
+            card[i] = 1 + random(maxComponent - 1);
+        let prefixSums = new Array(numComponents+1);
+        prefixSums[0] = 0;
+        for (let i = 1; i <= numComponents; i++)
+            prefixSums[i] = prefixSums[i-1] + card[i-1];
+        const numVertices = prefixSums[prefixSums.length - 1];
+        this.emptyGraph(numVertices);
+        const vertices = Array.from({ length: numVertices}, (_, index) => index);
+        shuffle(vertices);
+        for (let c = 0; c < numComponents; c++) {
+            const n = card[c];
+            const component = new Graph(false);
+            component.randomConnectedGraph(n, random(n-1, 2*n));
+            for (const edge of component.getEdges()) {
+                const [from, to] = edge;
+                this.addEdge(vertices[prefixSums[c] + from], vertices[prefixSums[c] + to]);
             }
         }
-        this.sortNeighbours();
     }
-
-    // random tree with n vertices and edges chosen from the given set of edges
-    static randomTree(n, edges) {
+    
+    // random tree edges with numVertices vertices and edges chosen from the given set of edges
+    static randomSubtree(numVertices, edges) {
         const treeEdges = [];
-        const unionFind = new UnionFind(n);
+        const unionFind = new UnionFind(numVertices);
 
-        if (edges === undefined) {
-            edges = [];
-            for (let i = 0; i < n - 1; i++) {
-                for (let j = i + 1; j < n; j++) {
-                    edges.push([i, j]);
-                }
-            }            
-        }
+        if (edges === undefined)
+            edges = Graph.fullGraphEdges(numVertices, false);
 
         shuffle(edges);
 
         for (const [nodeA, nodeB] of edges) {
             if (unionFind.union(nodeA, nodeB))
                 treeEdges.push([nodeA, nodeB]);
-            if (treeEdges.length == n - 1)
+            if (treeEdges.length == numVertices - 1)
                 break;
         }
         return treeEdges;
     }
 
+    // orient edges of a tree from its root to its leaves
+    static orientTreeEdges(edges, root) {
+        function dfs(node) {
+            visited.push(node);
+            const nodeEdges = edges.filter(edge => edge.includes(node));
+            const neighbours = nodeEdges.map(edge => edge.filter(x => x != node)).flat(1);
+            neighbours.forEach(neighbour => {
+                if (!visited.includes(neighbour)) {
+                    orientedEdges.push([node, neighbour]);
+                    dfs(neighbour);
+                }
+            });
+        }
+        const visited = [];
+        const orientedEdges = [];
+        dfs(root);
+        return orientedEdges;
+    }
+
+    
+    // random connected graph with numVertices vertices, numEdges
+    // edges, and edges chosen from a given list of edges
+    randomConnectedSubgraph(numVertices, numEdges, edges) {
+        this.emptyGraph(numVertices);
+        const treeEdges = Graph.orientTreeEdges(Graph.randomSubtree(numVertices, edges), 0);
+        const remainingEdges = edges.filter(edge => !treeEdges.some(edge1 => Graph.equalEdges(edge, edge1, false)));
+        this.addEdges(treeEdges);
+        this.addEdges(remainingEdges.slice(0, numEdges - treeEdges.length));
+        this.sortNeighbours();
+    }
+
+    // random connected graph with numVertices vertices and numEdges edges
+    randomConnectedGraph(numVertices, numEdges) {
+        const allEdges = Graph.fullGraphEdges(numVertices, false);
+        this.randomConnectedSubgraph(numVertices, numEdges, allEdges);
+    }
+
+    // random DAG (directed acyclic graph) with numVertices vertices and numEdges edges
+    randomDAG(numVertices, numEdges) {
+        this.emptyGraph(numVertices);
+        const vertices = Array.from({ length: numVertices - 1}, (_, index) => index + 1);
+        shuffle(vertices);
+        vertices.unshift(0);
+        let i = 0;
+        while (i < numEdges) {
+            let source, target;
+            source = random(numVertices - 2);
+            target = random(source + 1, numVertices - 1);
+            if (!this.hasEdge(vertices[source], vertices[target])) {
+                this.addEdge(vertices[source], vertices[target]);
+                i++;
+            }
+        }
+    }
+
+    // random connected DAG (directed acyclic graph) with numVertices vertices and numEdges edges
+    randomConnectedDAG(numVertices, numEdges) {
+        this.emptyGraph(numVertices);
+        const tree = Graph.directed(numVertices);
+        const treeEdges = Graph.orientTreeEdges(Graph.randomSubtree(this.numVertices()), 0);
+        tree.addEdges(treeEdges);
+        this.addEdges(treeEdges);
+
+        const preorder = tree.dfsPreorderNumeration(0);
+        const vertices = new Array(numVertices);
+        for (let i = 0; i < numVertices; i++)
+            vertices[preorder[i]] = i;
+        
+        let i = 0;
+        while (i <= numEdges - numVertices) {
+            let source, target;
+            source = random(numVertices - 2);
+            target = random(source + 1, numVertices - 1);
+            if (!this.hasEdge(vertices[source], vertices[target])) {
+                this.addEdge(vertices[source], vertices[target]);
+                i++;
+            }
+        }
+    }
+
+    // random Euler graph (a graph that has an Euler path)
+    randomEulerGraph(numVertices) {
+        this.emptyGraph(numVertices);
+        const visited = new Array(numVertices).fill(false);
+        let numVisited = 0;
+        let prev = 0;
+        visited[prev] = 0;
+        while(true) {
+            const next = random(0, numVertices - 1);
+            if (next == prev) continue;
+            if (this.hasEdge(prev, next) ||
+                this.hasEdge(next, prev))
+                continue;
+            this.addEdge(prev, next);
+            if (!visited[next]) {
+                visited[next] = true;
+                numVisited++;
+            }
+            prev = next;
+            if (numVisited == numVertices) {
+                if (prev != 0)
+                    this.addEdge(prev, 0);
+                break;
+            }
+        }
+    }
+
+
+    // all edges of m by n lattice graph
     static latticeGraphEdges(m, n, diagonals) {
         function vertex(i, j) {
             return i * n + j;
@@ -145,66 +341,116 @@ export class Graph {
         return edges;
     }
 
-    static orientTree(edges, root) {
-        function dfs(node) {
-            visited.push(node);
-            const nodeEdges = edges.filter(edge => edge.includes(node));
-            const neighbours = nodeEdges.map(edge => edge.filter(x => x != node)).flat(1);
-            neighbours.forEach(neighbour => {
-                if (!visited.includes(neighbour)) {
-                    orientedEdges.push([node, neighbour]);
-                    dfs(neighbour);
-                }
-            });
+    // full m by n lattice graph
+    latticeGraph(m, n, diagonals=false) {
+        this.emptyGraph(m * n);
+        const edges = Graph.latticeGraphEdges(m, n, diagonals);
+        this.addEdges(edges);
+        this.sortNeighbours();
+    }
+
+    // a random subgraph of m by n lattice graph with numEdges edges
+    randomLatticeGraph(m, n, numEdges, diagonals=true) {
+        const edges = Graph.latticeGraphEdges(m, n, diagonals);
+        this.randomSubgraph(m * n, numEdges, edges);
+    }
+
+    // a random connected random subgraph of m by n lattice graph with numEdges edges
+    randomConnectedLatticeGraph(m, n, numEdges, diagonals=true) {
+        const edges = Graph.latticeGraphEdges(m, n, diagonals);
+        this.randomConnectedSubgraph(m * n, numEdges, edges);
+    }
+
+    // a random strongly connected graph
+    randomStronglyConnected(numVertices, numEdges) {
+        this.emptyGraph(numVertices);
+        const vertices = Array.from({ length: numVertices }, (_, index) => index);
+        shuffle(vertices);
+        let currentNumEdges;
+        if (numVertices > 1) {
+            for (let i = 0; i < numVertices - 1; i++)
+                this.addEdge(vertices[i], vertices[i+1]);
+            currentNumEdges = numVertices - 1;
+            let from = numVertices - 1, to;
+            while (true) {
+                if (currentNumEdges >= numEdges - 1) 
+                    to = 0;
+                else
+                    to = random(0, from-1);
+                this.addEdge(vertices[from], vertices[to]);
+                currentNumEdges++;
+                if (to == 0) break;
+                from = to;
+            }
         }
-        const visited = [];
-        const orientedEdges = [];
-        dfs(root);
-        return orientedEdges;
-    }
-
-    latticeGraph(m, n) {
-        this.emptyGraph(m * n);
-        for (const [nodeA, nodeB] of Graph.latticeGraphEdges(m, n, false))
-            this.addEdge(nodeA, nodeB);
-        this.sortNeighbours();
-    }
-
-    randomLatticeGraph(m, n, numEdges) {
-        this.emptyGraph(m * n);
-
-        const edges = Graph.latticeGraphEdges(m, n, true);
-
-        shuffle(edges);
-        for (let i = 0; i < numEdges && i < edges.length; i++)
-            this.addEdge(...edges[i]);
-        
-        this.sortNeighbours();
-    }
-
-    randomConnectedLatticeGraph(m, n, numEdges) {
-        this.emptyGraph(m * n);
-        const edges = Graph.latticeGraphEdges(m, n, true);
-        const tree = Graph.orientTree(Graph.randomTree(this.numVertices(), edges), 0);
-        const eqEdges = (edge1, edge2) => (edge1[0] == edge2[0] && edge1[1] == edge2[1]) ||
-                                          (edge1[0] == edge2[1] && edge1[1] == edge2[0]);
-        const remainingEdges = edges.filter(edge => !tree.some(edge1 => eqEdges(edge, edge1)));
-        tree.forEach(edge => this.addEdge(...edge));
-        for (let i = 0; i < numEdges - tree.length && i < remainingEdges.length; i++)
-            this.addEdge(...remainingEdges[i]);
-        this.sortNeighbours();
+        while (currentNumEdges < numEdges) {
+            const source = random(numVertices - 1);
+            const target = random(numVertices - 1);
+            if (source == target) continue;
+            if (this.hasEdge(vertices[source], vertices[target]) ||
+                this.hasEdge(vertices[target], vertices[source]))
+                continue;
+            this.addEdge(vertices[source], vertices[target]);
+            currentNumEdges++;
+        }
     }
     
-    static adjacencyLists(n, edges, reverse=false) {
-        const neighbours = [...Array(n)].map(i => []);
-        edges.forEach(edge => {
-            let [a, b] = edge;
-            if (reverse)
-                [a, b] = [b, a];
-            neighbours[a].push(b);
-        });
-        return neighbours;
+    
+    // graph for ilustrating Tarjan's SCC algorithm
+    // it has numComponents strongly connected components (SCC) where each SCC
+    // contains between 1 and maxComponent vertices
+    randomTarjanSCC(numComponents, maxComponent=4, maxIntercomponentEdges=3) {
+        // condensed DAG of a graph (graph connecting its sccs)
+        const dag = Graph.directed();
+        dag.randomConnectedDAG(numComponents, Math.min(2*numComponents, numComponents*(numComponents-1)/2));
+        // number of vertices in each component
+        const card = new Array(numComponents);
+        for (let i = 0; i < numComponents; i++)
+            card[i] = 1 + random(maxComponent - 1);
+        // prefix sums of card array - usefull for calculating vertex indices
+        let prefixSums = new Array(numComponents+1);
+        prefixSums[0] = 0;
+        for (let i = 1; i <= numComponents; i++)
+            prefixSums[i] = prefixSums[i-1] + card[i-1];
+
+        // number of vertices of the final graph
+        const numVertices = prefixSums[prefixSums.length - 1];
+        this.emptyGraph(numVertices);
+
+        // permutation of vertices
+        const vertices = Array.from({ length: numVertices - 1}, (_, index) => index + 1);
+        shuffle(vertices);
+        vertices.unshift(0);
+
+        // generate each scc
+        for (let c = 0; c < numComponents; c++) {
+            const component = Graph.directed();
+            // number of vertices and edges in the scc
+            const n = card[c];
+            const m = random(n, Math.min(Math.floor(1.5*n), n*(n - 1)/2));
+            // generate scc and add it to the graph
+            component.randomStronglyConnected(n, m);
+            for (const edge of component.getEdges()) {
+                const [from, to] = edge;
+                this.addEdge(vertices[prefixSums[c] + from], vertices[prefixSums[c] + to]);
+            }
+        }
+        // connect sccs
+        for (const edge of dag.getEdges()) {
+            const [from, to] = edge;
+            // multiply each inter scc edge num times
+            let num = random(1, maxIntercomponentEdges);
+            for (let i = 0; i < num; i++) {
+                const from1 = vertices[prefixSums[from] + random(card[from] - 1)];
+                const to1 = vertices[prefixSums[to] + random(card[to] - 1)];
+                if (!this.hasEdge(from1, to1))
+                    this.addEdge(from1, to1);
+            }
+        }
     }
+
+
+    // ALGORITHMS
 
     dfsPrePost(startVertex, preprocess, postprocess) {
         function dfsRecPrePost(vertex) {
@@ -235,28 +481,32 @@ export class Graph {
         });
     }
 
-    dfs(vertex=0) {
-        const visited = new Array(this.numVertices()).fill(false);
+    dfs(vertex=0, visited=undefined) {
+        if (visited === undefined)
+            visited = new Array(this.numVertices()).fill(false);
         const trace = []
         this.dfsRec(vertex, visited, trace);
         return trace;
     }
 
-    dfsTree(vertex=0) {
-        return this.dfs(vertex).filter(item => item.length == 2);
+    dfsTree(vertex=0, visited=undefined) {
+        return this.dfs(vertex, visited).filter(item => item.length == 2);
     }
+    
 
-    dfsParent(vertex=0) {
+    dfsParent(vertex=0, visited=undefined) {
         const parent = new Array(this.numVertices()).fill(-1);
-        this.dfsTree(vertex).forEach(edge => {
+        this.dfsTree(vertex, visited).forEach(edge => {
             const [from, to] = edge;
             parent[to] = from;
         });
         return parent;
     }
 
-    dfsOrder(vertex=0) {
-        const treeEdges = this.dfsTree(0);
+    dfsOrder(vertex=0, visited=undefined) {
+        const treeEdges = this.dfsTree(vertex, visited);
+        if (treeEdges.length == 0)
+            return [vertex];
         let order = treeEdges.map(edge => edge[1]);
         order.unshift(treeEdges[0][0]);
         return order;
@@ -278,11 +528,13 @@ export class Graph {
         return trace.filter(item => item.length == 2);
     }
 
-    dfsPreorderNumeration(vertex=0) {
-        const dfsTrace = this.dfs(vertex);
+    dfsPreorderNumeration(vertex=0, visited=undefined) {
+        const dfsTrace = this.dfs(vertex, visited);
         const preorder = new Array(this.numVertices()).fill(-1);
-        if (dfsTrace.length == 0)
+        if (dfsTrace.length == 0) {
+            preorder[vertex] = 0;
             return preorder;
+        }
         let preorderNum = 0;
         const start = dfsTrace[0][0];
         preorder[start] = preorderNum++;
@@ -295,8 +547,8 @@ export class Graph {
         return preorder;
     }
 
-    dfsPostorderNumeration(vertex=0) {
-        const dfsTrace = this.dfs(vertex);
+    dfsPostorderNumeration(vertex=0, visited=undefined) {
+        const dfsTrace = this.dfs(vertex, visited);
         const postorder = new Array(this.numVertices()).fill(-1);
         if (dfsTrace.length == 0)
             return postorder;
@@ -316,7 +568,15 @@ export class Graph {
         return postorder;
     }
 
+    
     dfsLowlink(vertex = 0) {
+        if (this.directed)
+            return this.dfsLowlinkDirected(vertex);
+        else
+            return this.dfsLowlinkUndirected(vertex);
+    }
+    
+    dfsLowlinkUndirected(vertex = 0) {
         const lowlink = new Array(this.numVertices()).fill(-1);
         const parent = new Array(this.numVertices()).fill(-1);
         let preorderNum = 0;
@@ -342,6 +602,45 @@ export class Graph {
 
         dfsRec(vertex);
         return lowlink.map(l => order[l]);
+    }
+
+    dfsLowlinkDirected(start = 0) {
+        return this.tarjan_scc()[1];
+    }
+
+    dfsEdgeClassification(start=0) {
+        const preOrder = this.dfsPreorderNumeration(start);
+        const postOrder = this.dfsPostorderNumeration(start);
+        const parent = this.dfsParent(start);
+        const edgeType = {};
+        this.getEdges().forEach(edge => {
+            const [v, w] = edge;
+            const edgeStr = JSON.stringify(edge);
+            if (preOrder[v] == -1 || postOrder[v] == -1 ||
+                preOrder[w] == -1 || postOrder[w] == -1)
+                return;
+
+            if (this.directed) {
+                if (parent[w] == v)
+                    edgeType[edgeStr] = 'treeEdge';
+                else if (postOrder[v] <= postOrder[w])
+                    edgeType[edgeStr] = 'backEdge';
+                else if (preOrder[v] > preOrder[w])
+                    edgeType[edgeStr] = 'crossEdge';
+                else
+                    edgeType[edgeStr] = 'directEdge';
+            } else {
+                if (parent[w] == v || parent[v] == w)
+                    edgeType[edgeStr] = 'treeEdge';
+                else
+                    edgeType[edgeStr] = 'backEdge';
+            }
+        });
+        return edgeType;
+    }
+
+    connected() {
+        return this.connectedComponents(0).every(c => c == 0);
     }
 
     bridges() {
@@ -374,10 +673,82 @@ export class Graph {
                     break;
                 }
         }
-            
+        
         return aps;
     }
-        
+
+    tarjan_scc() {
+        const component = new Array(this.numVertices()).fill(-1);
+        let componentNum = 0;
+        const stack = [];
+        const preOrder = new Array(this.numVertices()).fill(-1);
+        let preOrderNum = 0;
+        const lowlink = new Array(this.numVertices()).fill(-1);
+        const inStack = new Array(this.numVertices()).fill(false);
+        const self = this;
+        const order = [];
+        function dfs(v) {
+            order.push(v);
+            preOrder[v] = lowlink[v] = preOrderNum++;
+            stack.push(v); inStack[v] = true;
+            self.neighbours[v].forEach(n => {
+                if (preOrder[n] == -1) {
+                    dfs(n);
+                    lowlink[v] = Math.min(lowlink[v], lowlink[n]);
+                } else if (inStack[n])
+                    lowlink[v] = Math.min(lowlink[v], preOrder[n]);
+            });
+            if (lowlink[v] == preOrder[v]) {
+                let vv;
+                do {
+                    vv = stack.pop();
+                    inStack[vv] = false;
+                    component[vv] = componentNum;
+                } while (vv != v);
+                componentNum++;
+            }
+        }
+        for (let v = 0; v < this.numVertices(); v++)
+            if (preOrder[v] == -1)
+                dfs(v);
+        return [component, lowlink.map(v => order[v])];
+    }
+
+    stronglyConnectedComponents() {
+        return this.tarjan_scc()[0];
+    }
+
+    connectedComponents() {
+        const components = new Array(this.numVertices()).fill(-1);
+        let component = 0;
+        for (let v = 0; v < this.numVertices(); v++) {
+            if (components[v] == -1) {
+                this.dfsOrder(v).forEach(vertex => components[vertex] = component);
+                component++;
+            }
+        }
+        return components;
+    }
+    
+
+    topologicalSort() {
+        const order = [];
+        const indeg = this.indegree();
+        const queue = [];
+        for (let v = 0; v < this.numVertices(); v++)
+            if (indeg[v] == 0)
+                queue.push(v);
+        while (queue.length > 0) {
+            const v = queue.shift();
+            order.push(v);
+            this.neighbours[v].forEach(n => {
+                if (--indeg[n] == 0)
+                    queue.push(n);
+            });
+        }
+        return order;
+    }
+    
     bfs(vertex) {
         const self = this;
         const visited = new Array(this.numVertices()).fill(false);
@@ -398,29 +769,84 @@ export class Graph {
         return trace;
     }
 
-    normalizeEdge(edge) {
-        if (!this.directed && edge[0] > edge[1])
-            return [edge[1], edge[0]];
-        return edge;
-    }
+    // HELPER FUNCTIONS
 
-    // auxiliary function -- check if two edges are equal
-    static equalEdges(g1, g2) {
+    // make adjacency lists from a given set of edges
+    static adjacencyLists(n, edges, reverse=false) {
+        const neighbours = [...Array(n)].map(i => []);
+        edges.forEach(edge => {
+            let [a, b] = edge;
+            if (reverse)
+                [a, b] = [b, a];
+            neighbours[a].push(b);
+        });
+        return neighbours;
+    }
+    
+    // check if two edges are equal
+    static equalEdges(g1, g2, directed=true) {
         if (!g1 || !g2)
             return false;
         var [a1, b1] = g1;
         var [a2, b2] = g2;
-        return a1 == a2 && b1 == b2;
+        if (directed)
+            return a1 == a2 && b1 == b2;
+        else
+            return (a1 == a2 && b1 == b2) || (a1 == b2 && a2 == b1);
+    }
+
+    // check if edge is in the given set of edges
+    static inEdgeSet(edge, edges, directed) {
+        return edges.some(e => Graph.equalEdges(e, edge, directed));
+    }
+
+    // check if two sets of edges are equal (order is not important)
+    static edgeSetsEqual(set1, set2, directed) {
+        return set1.length == set2.length &&
+               set1.every(edge => Graph.inEdgeSet(edge, set2, directed));
+    }
+
+    // check if two arrays of edges are equal (order is important)
+    static edgeArraysEqual(arr1, arr2, directed) {
+        if (arr1.length != arr2.length)
+            return;
+        return arr1.every((edge, i) => Graph.equalEdges(edge, arr2[i], directed))
+    }
+
+    // check if array of edges contains duplicates
+    static edgeArrayDistinct(edges, directed) {
+        return edges.every((edge, i) => !Graph.inEdgeSet(edge, edges.slice(0, i), directed));
+    }
+
+    
+    // format a vertex label using given numeration style 
+    static vertexString(vertex, numerationStyle) {
+        if (numerationStyle == "A")
+            return String.fromCharCode('A'.charCodeAt(0) + vertex);
+        else if (numerationStyle == "a")
+            return String.fromCharCode('a'.charCodeAt(0) + vertex);
+        else if (numerationStyle == "")
+            return "";
+        else
+            return vertex;
     }
 }
 
 export class WeightedGraph extends Graph {
-    constructor(n=0, directed=true) {
-        super(n)
+    constructor(directed=true,n=0) {
+        super(directed, n)
         this.weighted = true;
         this.directed = directed;
     }
 
+    static directed(n=0) {
+        return new WeightedGraph(true, n);
+    }
+
+    static undirected(n=0) {
+        return new WeightedGraph(false, n);
+    }
+    
     emptyGraph(n) {
         super.emptyGraph(n);
         this.weights = Array.from({length: n}, () => Array(n).fill(undefined));
@@ -459,19 +885,44 @@ export class WeightedGraph extends Graph {
         const n = this.numVertices();
         for (let i = 0; i < n; i++)
             for (let j = 0; j < n; j++) {
-                const w = minWeight + Math.floor((maxWeight - minWeight + 1) * Math.random());
+                const w = random(minWeight, maxWeight);
                 if (this.hasEdge(i, j))
                     this.setWeight(i, j, w);
             }
     }
 
-    randomGraph(n, minWeight=1, maxWeight=100, prob=0.25) {
-        super.randomGraph(n, prob);
+    randomDifferentWeights(minWeight, maxWeight) {
+        const weights = [];
+        for (let w = minWeight; w <= maxWeight; w++)
+            weights.push(w);
+        shuffle(weights);
+        this.getEdges().forEach((edge, i) => {
+            this.setWeight(...edge, weights[i]);
+        });
+    }
+
+    closeEdges(postion, eps) {
+        Graph.fullGraphEdges(this.numVertices(), this.directed).forEach(edge => {
+            const [from, to] = edge;
+            if (distance(postion[from][0], postion[from][1], postion[to][0], postion[to][1]) <= eps)
+                this.addEdge(from, to);
+        });
+    }
+
+    euclideanWeights(position) {
+        this.getEdges().forEach(edge => {
+            const [from, to] = edge;
+            this.setWeight(from, to, distance(position[from][0], position[from][1], position[to][0], position[to][1]));
+        });
+    }
+
+    randomGraph(numVertices, numEdges, minWeight=1, maxWeight=100) {
+        super.randomGraph(numVertices, numEdges);
         this.randomWeights(minWeight, maxWeight);
     }
 
-    fullGraph(n, minWeight=1, maxWeight=100) {
-        super.fullGraph(n);
+    fullGraph(numVertices, minWeight=1, maxWeight=100) {
+        super.fullGraph(numVertices);
         this.randomWeights(minWeight, maxWeight);
     }
 
@@ -514,6 +965,27 @@ export class WeightedGraph extends Graph {
 	    parents.push(minParents);
         }
         return {dist: dist, vertexOrder: vertexOrder, table: table, parents: parents, numChanges: numChanges};
+    }
+
+    bellmanFord(vertex = 0) {
+        const dist = new Array(this.numVertices()).fill(Infinity);
+        const parent = new Array(this.numVertices()).fill(null);
+        dist[vertex] = 0;
+        const commands = [];
+        for (let i = 0; i < graph.numVertices() - 1; i++) {
+            this.getEdges().forEach(edge => {
+                let [u, v] = edge;
+                if (dist[u] + graph.getWeight(u, v) < dist[v]) {
+                    dist[v] = dist[u] + graph.getWeight(u, v);
+                    parent[v] = u;
+                }
+            });
+        }
+        const negativeCycle = this.getEdges().some(edge => {
+            const [u, v] = edge;
+            return dist[u] + graph.getWeight(u, v) < dist[v];
+        });
+        return {dist: dist, parents: parent, negativeCycle: negativeCycle};
     }
 
     prim() {
@@ -579,7 +1051,6 @@ export class WeightedGraph extends Graph {
         return {mstWeight: mstWeight, mstEdges: mstEdges, allEdges: allEdges};
     }
 
-    // FIXME: UNTESTED
     floydWarshall() {
 	function cloneMatrix(M) {
 	    const clone = new Array(M.length);
@@ -597,9 +1068,9 @@ export class WeightedGraph extends Graph {
 	}
 
         for (let i = 0; i < n; i++) {
-	    this.neighbours[i].forEach((j, s) => {
-		M[i][s] = this.weights[i][j];
-		Mp[i][s] = [i, s];
+	    this.neighbours[i].forEach(j => {
+		M[i][j] = this.weights[i][j];
+		Mp[i][j] = [i, j];
 	    });
 	    M[i][i] = 0;
 	}
@@ -666,6 +1137,8 @@ class GraphDrawingCanvas {
         // Normalize coordinate system to use css pixels.
         this._ctx.scale(scale, scale);
         this._scale = scale;
+
+        this._listeners = [];
     }
 
     width() {
@@ -686,6 +1159,15 @@ class GraphDrawingCanvas {
 
     addEventListener(event, handler) {
         this._canvas.addEventListener(event, handler);
+        this._listeners.push([event, handler]);
+    }
+
+    removeAllListeners() {
+        this._listeners.forEach(pair => {
+            const [event, handler] = pair;
+            this._canvas.removeEventListener(event, handler);
+        });
+        this._listeners = [];
     }
 }
 
@@ -695,7 +1177,22 @@ export class GraphDrawing {
             canvas.width = width;
         if (height)
             canvas.height = height;
+
+        if (canvas != undefined)
+            this.canvas = new GraphDrawingCanvas(canvas);
+
+        this.setCSS();
         
+        this.setGraph(graph);
+        
+        this.singleSelectVertex = true;
+        this.singleSelectEdge = false;
+
+        this.drawVertices = true;
+        this.drawEdges = true;
+    }
+
+    setGraph(graph) {
         this.graph = graph;
         
         const n = graph.numVertices();
@@ -709,21 +1206,19 @@ export class GraphDrawing {
         this.edgeLabels = {}
         this.edgeCSS = {}
 
-        if (graph.weighted)
-            this.setWeightLabels();
-
+        this.drawFocusVertex = false;
         this.focusVertex = undefined;
         this.focusEdge = undefined;
         
         this.selectedVertices = [];
         this.selectedEdges = [];
-        this.singleSelectVertex = true;
-        this.singleSelectEdge = false;
 
-        if (canvas != undefined)
-            this.canvas = new GraphDrawingCanvas(canvas);
+        this.canvas.removeAllListeners();
 
-        this.setCSS();
+        if (graph.weighted)
+            this.setWeightLabels();
+        
+        this.draw();
     }
 
     width() {
@@ -754,9 +1249,22 @@ export class GraphDrawing {
         return this.vertexPosition[i];
     }
 
-    circularArrangementPosition(cx, cy, r) {
-        const n = this.numVertices();
-        
+    curveDoubleEdges() {
+        if (!this.graph.directed)
+            return;
+        for (const edge of this.graph.getEdges()) {
+            if (this.graph.hasEdge(edge[1], edge[0])) {
+                this.setEdgeCSSProperty(edge, "curvature", 0.3);
+                this.setEdgeCSSProperty([edge[1], edge[0]], "curvature", 0.3);
+            }
+        }
+    }
+    
+
+    // VERTEX ARRANGEMENT
+    
+    static circularArrangementPosition(n, cx, cy, r) {
+        if (n == 1) return [[cx, cy]];
         function position(vertex) {
             const alpha = Math.PI / 2 + vertex * (2*Math.PI / n);
             const x = cx + r * Math.cos(alpha);
@@ -767,11 +1275,11 @@ export class GraphDrawing {
     }
     
     circularArrangement(cx, cy, r) {
-        this.vertexPosition = this.circularArrangementPosition(cx, cy, r);
+        this.vertexPosition = GraphDrawing.circularArrangementPosition(this.numVertices(), cx, cy, r);
         this.draw();
     }
 
-    latticeArrangementPosition(m, n, x0, y0, width, height) {
+    static latticeArrangementPosition(m, n, x0, y0, width, height) {
         function position(vertex, m, n) {
             const j = vertex % n;
             const i = Math.floor(vertex / n);
@@ -780,11 +1288,23 @@ export class GraphDrawing {
             const y = y0 + i * h;
             return [x, y];
         }
-        return [...Array(this.numVertices()).keys()].map(vertex => position(vertex, m, n));
+        return [...Array(m*n).keys()].map(vertex => position(vertex, m, n));
     }
     
     latticeArrangement(m, n, x0, y0, width, height) {
-        this.vertexPosition = this.latticeArrangementPosition(m, n, x0, y0, width, height);
+        this.vertexPosition = GraphDrawing.latticeArrangementPosition(m, n, x0, y0, width, height);
+        this.draw();
+    }
+
+    randomArrangement(x0, y0, width, height, minDist) {
+        function random(a, b) {
+            return a + Math.random() * (b - a);
+        }
+        for (let v = 0; v < this.numVertices(); v++) {
+            do {
+                this.vertexPosition[v] = [random(x0, x0 + width), random(y0, y0 + height)]
+            } while(this.graph.getVertices().slice(0, v).some(vv => distance(this.vertexPosition[vv][0], this.vertexPosition[vv][1], this.vertexPosition[v][0], this.vertexPosition[v][1]) < minDist));
+        }
         this.draw();
     }
 
@@ -909,32 +1429,79 @@ export class GraphDrawing {
         this.draw();
     }
     
+    lineArrangementPosition(order, x0, y0, w) {
+        const position = new Array(this.graph.numVertices()).fill([0, 0]);
+        let index = new Array(order.length);
+        for (let i = 0; i < order.length; i++)
+            index[order[i]] = i;
+
+        position[order[0]] = [x0, y0];
+        if (order.length == 1)
+            return;
+        const dw = w / (order.length - 1);
+        for (let i = 1; i < order.length; i++)
+            position[order[i]] = [x0 + i*dw, y0];
+        return position;
+    }
+
+    lineArrangement(order, x0, y0, w) {
+        this.vertexPosition = this.lineArrangementPosition(order, x0, y0, w);
+    }
+
+    twoLevelCircularArrangement(x0, y0, w, h, component) {
+        const numComponents = Math.max(...component) + 1;
+        const componentCard = new Array(numComponents).fill(0);
+        component.forEach(c => {componentCard[c]++;});
+        const D = Math.min(w/2, h/2);
+        const R = 2*D/3;
+        const r = R*Math.sin(Math.PI / numComponents) * (2/3);
+        const componentCenter = GraphDrawing.circularArrangementPosition(numComponents, x0 + w/2, y0 + h/2, R)
+        const positions = [];
+        componentCard.forEach((card, c) => {
+            let [cx, cy] = componentCenter[c];
+            positions.push(GraphDrawing.circularArrangementPosition(card, cx, cy, r));
+        });
+        component.forEach((c, v) => {
+            this.vertexPosition[v] = positions[c][--componentCard[c]];
+        });
+        this.draw();
+    }
+    
+
     shake(n) {
         this.vertexPosition = this.vertexPosition.map(p => [p[0] + Math.random() * n - n/2, p[1] + Math.random() * n - n/2])
     }
 
-    animateArrangement(newVertexPosition, n=30, dt=500) {
+    animateArrangement(newVertexPosition, numSteps=30, animationTime=500, animationDelay, callback) {
+        if (animationDelay == undefined)
+            animationDelay = animationTime / 2;
+        
         this.draw();
         let t = 0;
+        let step = 0;
         const startVertexPosition = [...this.vertexPosition];
         const self = this;
-        function step() {
+        function showStep() {
             for (let vertex = 0; vertex < self.numVertices(); vertex++) {
                 const [x0, y0] = startVertexPosition[vertex];
                 const [x1, y1] = newVertexPosition[vertex];
                 self.vertexPosition[vertex] = [(1-t)*x0 + t*x1, (1-t)*y0 + t*y1];
             }
             self.draw();
-            t += 1 / n;
-            if (t < 1)
-                setTimeout(step, dt/n);
+            t += 1 / (numSteps-1);
+            step++;
+            if (step < numSteps)
+                setTimeout(showStep, animationTime/(numSteps - 1));
+            else {
+                if (callback != undefined)
+                    callback();
+            }
         }
-        setTimeout(step, dt);
+        setTimeout(showStep, animationDelay);
     }
 
     // VERTEX CONTENT
-
-    getVertexContent(vertex) {
+    getVertexContent(vertex, numerationStyle) {
         if (this.vertexContent[vertex] !== undefined) {
             const str = this.vertexContent[vertex];
             if (/^-?\d+$/.test(str))
@@ -942,7 +1509,7 @@ export class GraphDrawing {
             else
                 return str;
         } else
-            return vertex;
+            return Graph.vertexString(vertex, numerationStyle);
     }
 
     setVertexContent(vertex, content) {
@@ -954,7 +1521,6 @@ export class GraphDrawing {
     }
 
     // LABELS
-    
     getVertexLabel(vertex) {
         return this.vertexLabels[vertex];
     }
@@ -995,6 +1561,10 @@ export class GraphDrawing {
 
     removeEdgeLabel(edge) {
         return this.setEdgeLabel(edge, undefined);
+    }
+
+    removeAllEdgeLabels() {
+        this.graph.getEdges().forEach(edge => this.removeEdgeLabel(edge));
     }
 
     getLabeledVertices() {
@@ -1111,6 +1681,14 @@ export class GraphDrawing {
         return true;
     }
 
+    hideEdge(edge) {
+        this.setEdgeCSSProperty(edge, "show", false);
+    }
+
+    showEdge(edge) {
+        this.setEdgeCSSProperty(edge, "show", true);
+    }
+    
     // set css to the vertex currently in focus
     setFocusVertexCSS(css) {
         if (this.focusVertex == undefined)
@@ -1133,8 +1711,7 @@ export class GraphDrawing {
         return true;
     }
 
-    // MOUSE POSITION
-    
+    // MOUSE POSITION    
     // is point (x, y) close to the given vertex?
     closeToVertex(vertex, x, y, eps = 15) {
         const [xc, yc] = this.vertexPosition[vertex];
@@ -1151,17 +1728,11 @@ export class GraphDrawing {
     }
 
     // is point (x, y) close to the given edge [vertex1, vertex2]?
-
-    // is point (x, y) close to the given edge [vertex1, vertex2]?
     closeToEdge(edge, x, y, curvature=0) {
         if (curvature == 0) {
             var [vertex1, vertex2] = edge;
             var [x0, y0] = this.vertexPosition[vertex1];
             var [x1, y1] = this.vertexPosition[vertex2];
-            
-            function distance(ax, ay, bx, by) { 
-                return Math.sqrt((ax - bx)*(ax - bx) + (ay - by)*(ay - by));
-            }
             var eps = 1;
             return Math.abs(distance(x, y, x0, y0) + distance(x, y, x1, y1) - distance(x0, y0, x1, y1)) < eps;
         } else {
@@ -1263,6 +1834,7 @@ export class GraphDrawing {
 
     // select a given edge
     selectEdge(edge) {
+        edge = this.graph.normalizeEdge(edge);
         if (!this.isSelectedEdge(edge)) {
             if (this.singleSelectEdge)
                 this.selectedEdges = [];
@@ -1456,8 +2028,14 @@ export class GraphDrawing {
         if (this.canvas == undefined)
             return;
         
-        function drawEdgeLine(ctx, x1, y1, x2, y2, width, color, directed, label, curvature, vertexSize1, vertexSize2) {
+        function drawEdgeLine(ctx, x1, y1, x2, y2, width, color, lineStyle, directed, label, labelBackgroundColor, labelPosition, curvature, vertexSize1, vertexSize2) {
             var d = Math.sqrt((x2-x1)*(x2-x1) + (y2-y1)*(y2-y1));
+            if (lineStyle == "dashed")
+                lineStyle = [5, 5];
+            else if (lineStyle == "dotted")
+                lineStyle = [2, 2];
+            else
+                lineStyle = [];
             
             ctx.save();
             ctx.translate(x2, y2);
@@ -1470,6 +2048,7 @@ export class GraphDrawing {
             // draw "line"
             ctx.beginPath();
             ctx.lineWidth = width;
+            ctx.setLineDash(lineStyle);
             ctx.strokeStyle = color;
             ctx.moveTo(bottomX, bottomY);
             const midX = (bottomX + topX) / 2;
@@ -1477,12 +2056,13 @@ export class GraphDrawing {
             ctx.quadraticCurveTo(midX, midY, topX, topY);
             ctx.stroke();
 
+            const Cx = t => bottomX*(1-t)**2 + 2*midX*t*(1-t) + topX*t**2;
+            const Cy = t => bottomY*(1-t)**2 + 2*midY*t*(1-t) + topY*t**2;
+            
             // draw "arrow"
             if (directed) {
                 if (curvature != 0) {
                     ctx.save();
-                    const Cx = t => bottomX*(1-t)**2 + 2*midX*t*(1-t) + topX*t**2;
-                    const Cy = t => bottomY*(1-t)**2 + 2*midY*t*(1-t) + topY*t**2;
                     const n = 200;
                     const dt = 1/n;
                     let t = 1.0;
@@ -1497,33 +2077,59 @@ export class GraphDrawing {
                 }
 
                 ctx.beginPath();
-                const length = 15;
-                ctx.moveTo(topX - vertexSize2 - length, topY - length / 3);
+                const length = Math.min(15, 2 * (d - vertexSize1 - vertexSize2) / 3);
+                
+                ctx.moveTo(topX - vertexSize2 - length, topY - length / 4);
                 ctx.lineTo(topX - vertexSize2, topY);
                 ctx.stroke();
                 
                 ctx.beginPath();
-                ctx.moveTo(topX - length - vertexSize2, topY + length / 3);
+                ctx.moveTo(topX - length - vertexSize2, topY + length / 4);
                 ctx.lineTo(topX - vertexSize2, topY);
                 ctx.stroke();
-
+                
                 if (curvature != 0)
                     ctx.restore();
             }
 
-            // print weight
+            // print label
             if (label !== undefined) {
-                ctx.font = "15px Arial";
-                ctx.translate((bottomX + topX) / 2, (bottomY + topY) / 2);
+                label = render(label);
+                const labelSize = "15px";
+                ctx.font = labelSize + " " + "Arial";
+                let labelPositionX, labelPositionY;
+                if (curvature == 0) {
+                    labelPositionX = bottomX + (topX - bottomX)*labelPosition;
+                    labelPositionY = bottomY + (topY - bottomY)*labelPosition;
+                } else {
+                    labelPositionX = Cx(labelPosition);
+                    labelPositionY = Cy(labelPosition);
+                }
+
+                ctx.translate(labelPositionX, labelPositionY);
                 ctx.rotate(-alpha);
                 ctx.beginPath();
-                ctx.arc(0, 0, 2, 0, 2*Math.PI);
+                ctx.arc(0, 0, width+1, 0, 2*Math.PI);
                 ctx.fill();
-		ctx.textAlign = "center";
-		ctx.textBaseline = "middle";
-                ctx.fillText(label, 10, 10);
+
+                const dx = 5 + width, dy = - width;
+                if (labelBackgroundColor !== undefined) {
+                    ctx.globalAlpha = 0.8;
+                    ctx.fillStyle = labelBackgroundColor;
+                    const paddingX = 2, paddingY = 2;
+                    const textWidth = ctx.measureText(label).width + 2*paddingX;
+                    const textHeight = parseInt(labelSize) + 2*paddingY;
+                    ctx.fillRect(dx - paddingX, dy - textHeight + paddingY, textWidth, textHeight);
+                    ctx.globalAlpha = 1;
+                    ctx.strokeStyle = "black";
+                    ctx.strokeRect(dx - paddingX, dy - textHeight + paddingY, textWidth, textHeight);
+                }
+
+                ctx.fillStyle = "black";
+		ctx.textAlign = "left";
+		ctx.textBaseline = "bottom";
+                ctx.fillText(label, dx, dy);
             }
-            
             ctx.restore();
         }
 
@@ -1533,41 +2139,47 @@ export class GraphDrawing {
             ctx.stroke();
         }
 
-        function drawVertexCircle(ctx, x, y, size, color, fontFamily, fontSize, content, label, labelSize, labelColor, labelBackground) {
+        function drawVertexCircle(ctx, x, y, size, width, borderColor, color, fontFamily, fontSize, content, label, labelSize, labelColor, labelBackgroundColor) {
+            ctx.save();
             ctx.beginPath();
             ctx.arc(x, y, size, 0, 2 * Math.PI);
             ctx.fillStyle = color;
             ctx.fill();
-            ctx.lineWidth = 1;
+            ctx.strokeStyle = borderColor;
+            ctx.lineWidth = width;
             ctx.stroke();
             ctx.font = fontSize + " " + fontFamily;
             ctx.fillStyle = hsvColor(color).v >= 0.6 ? "black" : "white";
             ctx.textAlign = "center";
             ctx.textBaseline = "middle";
+            content = render(content);
             ctx.fillText(content, x, y);
             if (label !== undefined) {
-                ctx.save();
+                label = render(label);
                 ctx.font = labelSize + " " + fontFamily;
                 ctx.fillStyle = labelColor;
 
-                const x0 = x + 25, y0 = y - 15;
+                const x0 = x + size + 5, y0 = y - size;
 
-                if (labelBackground) {
+                if (labelBackgroundColor != null) {
                     const padding = 2;
                     const textWidth = ctx.measureText(label).width + padding + 2;
                     const textHeight = parseInt(labelSize) + padding;
                     ctx.globalAlpha = 0.8;
-                    ctx.fillStyle = "#ddd";
-                    ctx.fillRect(x0 - textWidth / 2, y0 - textHeight / 2, textWidth, textHeight);
+                    ctx.fillStyle = labelBackgroundColor;
+                    ctx.fillRect(x0 - padding, y0 - textHeight / 2, textWidth, textHeight);
                     ctx.globalAlpha = 1;
+                    ctx.lineWidth = 1;
                     ctx.strokeStyle = labelColor;
-                    ctx.strokeRect(x0 - textWidth / 2, y0 - textHeight / 2, textWidth, textHeight);
+                    ctx.strokeRect(x0 - padding, y0 - textHeight / 2, textWidth, textHeight);
                 }
                 
+                ctx.textAlign = "left";
+                ctx.textBaseline = "middle";
                 ctx.fillStyle = labelColor;
                 ctx.fillText(label, x0, y0);
-		ctx.restore();
             }
+	    ctx.restore();
         }
 
         const self = this;
@@ -1575,26 +2187,31 @@ export class GraphDrawing {
             const [vertex1, vertex2] = edge;
             if (css == undefined)
                 css = self.CSS.edge;
+
+            if ("show" in css && !css.show)
+                return;
+            
             if (vertexCSS1 == undefined)
                 vertexCSS1 = self.CSS.vertex;
             if (vertexCSS2 == undefined)
                 vertexCSS2 = self.CSS.vertex;
-            
+
 	    const width = "width" in css ? css.width : self.CSS.edge.width;
+	    const lineStyle = "lineStyle" in css ? css.lineStyle : self.CSS.edge.lineStyle;
 	    const color = "color" in css ? css.color : self.CSS.edge.color;
 	    const curvature = "curvature" in css ? css.curvature : self.CSS.edge.curvature;
+            const label = self.getEdgeLabel(edge);
+	    const labelPosition = "labelPosition" in css ? css.labelPosition : self.CSS.edge.labelPosition;
+	    const labelBackgroundColor = "labelBackgroundColor" in css ? css.labelBackgroundColor : self.CSS.edge.labelBackgroundColor;
             
             if (vertex1 != vertex2) {
                 const [x1, y1] = self.vertexPosition[vertex1];
                 const [x2, y2] = self.vertexPosition[vertex2];
-                const label = self.getEdgeLabel(edge);
                 const vertexSize1 = "size" in vertexCSS1 ? vertexCSS1["size"] : self.CSS.vertex.size;
-                const vertexSize2 = "size" in vertexCSS2 ? vertexCSS1["size"] : self.CSS.vertex.size;
-                
-                drawEdgeLine(ctx, x1, y1, x2, y2, width, color, self.graph.directed, label, curvature, vertexSize1, vertexSize2);
+                const vertexSize2 = "size" in vertexCSS2 ? vertexCSS2["size"] : self.CSS.vertex.size;
+                drawEdgeLine(ctx, x1, y1, x2, y2, width, color, lineStyle, self.graph.directed, label, labelBackgroundColor, labelPosition, curvature, vertexSize1, vertexSize2);
             } else {
                 const [x, y] = self.vertexPosition[vertex1];
-                const label = self.getEdgeLabel(edge);
                 const vertexSize =  "size" in vertexCSS1 ? vertexCSS1["size"] : self.CSS.vertex.size;
                 drawEdgeLoop(ctx, x, y, width, color, label, vertexSize);
             }
@@ -1603,75 +2220,87 @@ export class GraphDrawing {
         function drawVertex(ctx, vertex, css) {
             if (css == undefined)
                 css = self.CSS.vertex;
+            if ("show" in css && !css.show)
+                return;
             const [x, y] = self.vertexPosition[vertex];
 	    const color = "color" in css ? css.color : self.CSS.vertex.color;
 	    const size = "size" in css ? css.size : self.CSS.vertex.size;
+	    const width = "width" in css ? css.width : self.CSS.vertex.width;
+	    const borderColor = "borderColor" in css ? css.borderColor : self.CSS.vertex.borderColor;
             const fontFamily = "fontFamily" in css ? css.fontFamily : self.CSS.vertex.fontFamily;
             const fontSize = "fontSize" in css ? css.fontSize : self.CSS.vertex.fontSize;
             const label = self.vertexLabels[vertex];
-            const content = self.getVertexContent(vertex);
+            const numerationStyle = "numerationStyle" in css ? css.numerationStyle : self.CSS.vertex.numerationStyle;
+            const content = self.getVertexContent(vertex, numerationStyle);
             const labelSize = "labelSize" in css ? css.labelSize : self.CSS.vertex.labelSize;
             const labelColor = "labelColor" in css ? css.labelColor : self.CSS.vertex.labelColor;
-            const labelBackground = "labelBackground" in css ? css.labelBackground : self.CSS.vertex.labelBackground;
+            const labelBackgroundColor = "labelBackgroundColor" in css ? css.labelBackgroundColor : self.CSS.vertex.labelBackgroundColor;
             
-            drawVertexCircle(ctx, x, y, size, color, fontFamily, fontSize, content, label, labelSize, labelColor, labelBackground);
+            drawVertexCircle(ctx, x, y, size, width, borderColor, color, fontFamily, fontSize, content, label, labelSize, labelColor, labelBackgroundColor);
         }
 
         const ctx = this.canvas.ctx();
         ctx.clearRect(0, 0, this.canvas.width(), this.canvas.height());
 
-        // draw edges that are not in focus
-        this.graph.getEdges().forEach(edge => {
-            if (!Graph.equalEdges(this.focusEdge, edge)) {
-                const edgeCSS = this.getEdgeCSS(edge);
+        // draw edges that are not in focus and not selected
+        if (this.drawEdges) {
+            this.graph.getEdges().forEach(edge => {
+            if (!Graph.equalEdges(this.focusEdge, edge) && !this.isSelectedEdge(edge)) {
+                    const edgeCSS = this.getEdgeCSS(edge);
+                    const [v1, v2] = edge;
+                    const vertexCSS1 = this.getVertexCSS(v1);
+                    const vertexCSS2 = this.getVertexCSS(v2);
+                    drawEdge(ctx, edge, edgeCSS, vertexCSS1, vertexCSS2);
+                }
+            });
+
+            // draw selected edges
+            this.selectedEdges.forEach(edge => {
+                const css = {...this.getEdgeCSS(edge)};
+                for (const property in this.CSS.selectedEdge)
+                    css[property] = this.CSS.selectedEdge[property];
                 const [v1, v2] = edge;
                 const vertexCSS1 = this.getVertexCSS(v1);
                 const vertexCSS2 = this.getVertexCSS(v2);
-                drawEdge(ctx, edge, edgeCSS, vertexCSS1, vertexCSS2);
-            }
-        });
+                drawEdge(ctx, edge, css, vertexCSS1, vertexCSS2);
+            });
 
-        // draw focus edge
-        if (this.focusEdge != undefined) {
-            const css = {...this.getEdgeCSS(this.focusEdge)};
-            for (const property in this.CSS.focusEdge)
-                css[property] = this.CSS.focusEdge[property];
-            const [v1, v2] = this.focusEdge;
-            const vertexCSS1 = this.getVertexCSS(v1);
-            const vertexCSS2 = this.getVertexCSS(v2);
-            drawEdge(ctx, this.focusEdge, css, vertexCSS1, vertexCSS2);
+            // draw focus edge
+            if (this.focusEdge != undefined) {
+                const css = {...this.getEdgeCSS(this.focusEdge)};
+                for (const property in this.CSS.focusEdge)
+                    css[property] = this.CSS.focusEdge[property];
+                const [v1, v2] = this.focusEdge;
+                const vertexCSS1 = this.getVertexCSS(v1);
+                const vertexCSS2 = this.getVertexCSS(v2);
+                drawEdge(ctx, this.focusEdge, css, vertexCSS1, vertexCSS2);
+            }
         }
+
+        if (this.drawVertices) {
+            // draw vertices that are not in focus
+            for (let vertex = 0; vertex < this.numVertices(); vertex++)
+                if (vertex != this.focusVertex || !this.drawFocusVertex) {
+                    const css = this.vertexCSS[vertex] ? this.vertexCSS[vertex] : this.CSS.vertex;
+                    drawVertex(ctx, vertex, css);
+                }
         
-        // draw vertices that are not in focus
-        for (let vertex = 0; vertex < this.numVertices(); vertex++)
-            if (vertex != this.focusVertex) {
-                const css = this.vertexCSS[vertex] ? this.vertexCSS[vertex] : this.CSS.vertex;
-                drawVertex(ctx, vertex, css);
+            // draw focus vertex
+            if (this.drawFocusVertex && this.focusVertex != undefined) {
+                const css = {...this.getVertexCSS(this.focusVertex)};
+                for (const property in this.CSS.focusVertex)
+                    css[property] = this.CSS.focusVertex[property];
+                drawVertex(ctx, this.focusVertex, css);
             }
         
-        // draw focus vertex
-        if (this.focusVertex != undefined) {
-            const css = {...this.getVertexCSS(this.focusVertex)};
-            for (const property in this.CSS.focusVertex)
-                css[property] = this.CSS.focusVertex[property];
-            drawVertex(ctx, this.focusVertex, css);
+            // draw selected vertices
+            this.selectedVertices.forEach(vertex => {
+                const css = {...this.getVertexCSS(vertex)};
+                for (const property in this.CSS.selectedVertex)
+                    css[property] = this.CSS.selectedVertex[property];
+                drawVertex(ctx, vertex, css)
+            });
         }
-        
-        // draw selected vertices
-        this.selectedVertices.forEach(vertex => {
-            const css = {...this.getVertexCSS(vertex)};
-            for (const property in this.CSS.selectedVertex)
-                css[property] = this.CSS.selectVertex[property];
-            drawVertex(ctx, vertex, css)
-        });
-
-        // draw selected edges
-        this.selectedEdges.forEach(edge => {
-            const css = {...this.getEdgeCSS(edge)};
-            for (const property in this.CSS.selectedEdge)
-                css[property] = this.CSS.selectedEdge[property];
-            drawEdge(ctx, edge, css);
-        });
     }
 
     onVertexEvent(event, handler) {
@@ -1683,12 +2312,53 @@ export class GraphDrawing {
         });
     }
 
+    singleClick(handler) {
+        return function() {
+            this.isSingleClick = true;
+            setTimeout(() => {
+                if (this.isSingleClick)
+                    handler(...arguments);
+            }, 250);
+        }
+    }
+
+    doubleClick(handler) {
+        return function() {
+            this.isSingleClick = false;
+            handler(...arguments);
+        }
+    }
+                            
     onVertexClick(handler) {
-        this.onVertexEvent("click", handler);
+        this.onVertexEvent("click", this.singleClick(handler).bind(this));
     }
 
     onVertexDblClick(handler) {
-        this.onVertexEvent("dblclick", handler);
+        this.onVertexEvent("dblclick", this.doubleClick(handler).bind(this));
+    }
+
+    onVertexMouseover(handler) {
+        this.onVertexEvent("mousemove", handler);
+    }
+
+    onVertexEnter(handler) {
+        const self = this;
+        this.canvas.addEventListener("mousemove", function(e) {
+            const vertex = self.vertexOn(e.offsetX, e.offsetY);
+            if (self.vertexEnter == undefined && vertex != undefined)
+                handler(vertex, e);
+            self.vertexEnter = vertex;
+        });
+    }
+
+    onVertexLeave(handler) {
+        const self = this;
+        this.canvas.addEventListener("mousemove", function(e) {
+            const vertex = self.vertexOn(e.offsetX, e.offsetY);
+            if (self.vertexLeave != undefined && self.vertexLeave != vertex)
+                handler(self.vertexLeave, e);
+            self.vertexLeave = vertex;
+        });
     }
 
     onEdgeEvent(event, handler) {
@@ -1741,6 +2411,7 @@ export class GraphDrawing {
         this.canvas.addEventListener("mousemove", function(e) {
             self.focusVertexOn(e.offsetX, e.offsetY);
         });
+        this.drawFocusVertex = true;
     }
 
     showFocusEdge() {
@@ -1769,57 +2440,118 @@ export class GraphDrawing {
         this.canvas.addEventListener("mouseup", function(e) {
             mouseDown = false;
         });
+
+        this.canvas.addEventListener("mousemove", function(e) {
+            self.focusVertexOn(e.offsetX, e.offsetY);
+        });
+    }
+
+    orderVertices(start, vertex) {
+        if (this.getVertexLabel(vertex) == undefined)
+            this.setVertexLabel(vertex, this.numLabeledVertices() + start);
+        else if (this.getVertexLabel(vertex) == this.numLabeledVertices() + start - 1) {
+            this.removeVertexLabel(vertex);
+        }
     }
 
     orderVerticesDblClick(start=0) {
-        const self = this;
-        this.onVertexDblClick(function(vertex) {
-            if (self.getVertexLabel(vertex) == undefined)
-                self.setVertexLabel(vertex, self.numLabeledVertices() + start);
-            else if (self.getVertexLabel(vertex) == self.numLabeledVertices() + start - 1) {
-                self.removeVertexLabel(vertex);
-            }
-        });
+        this.onVertexDblClick(vertex => { this.orderVertices(start, vertex); });
+    }
+
+    orderVerticesClick(start=0) {
+        this.onVertexClick(vertex => { this.orderVertices(start, vertex); });
+    }
+
+    orderEdges(edge, start, showLabel, onAdd, onRemove, unique) {
+        if (!unique || !Graph.inEdgeSet(edge, this.edgeOrder, this.graph.directed)) {
+            this.edgeOrder.push(edge);
+            if (showLabel)
+                this.setEdgeLabel(edge, start + this.edgeOrder.length - 1);
+            onAdd(edge);
+        } else if (Graph.equalEdges(this.edgeOrder[this.edgeOrder.length - 1], edge)) {
+            this.edgeOrder.pop();
+            if (showLabel)
+                this.setEdgeLabel(edge, undefined);
+            onRemove(edge);
+        }
+    }
+
+    orderEdgesClick({start=0, showLabel=true, onAdd = (edge => {}), onRemove = (edge => {}), unique=true} = {}) {
+        this.edgeOrder = [];
+        this.onEdgeClick(edge => { this.orderEdges(edge, start, showLabel, onAdd, onRemove, unique); });
+    }
+
+    orderEdgesDblClick({start=0, showLabel=true, onAdd = (edge => {}), onRemove = (edge => {}), unique=true} = {}) {
+        this.edgeOrder = [];
+        this.onEdgeDblClick(edge => { this.orderEdges(edge, start, showLabel, onAdd, onRemove, unique); });
+    }
+    
+    vertexInput(vertex, callback) {
+        const input = document.createElement("input");
+        input.type = "text";
+        input.style.position = 'fixed';
+        const [x, y] = this.vertexPosition[vertex];
+        const canvasRect = this.canvas.getBoundingClientRect();
+        input.style.textAlign = "center";
+        input.style.width = 30 + "px";
+        input.style.height = 20 + "px";
+        input.style.left = canvasRect.left + x - 18 + 'px';
+        input.style.top = canvasRect.top + y - 12 + 'px';
+        document.body.appendChild(input);
+        input.focus();
+        input.onblur = function() {
+            callback(vertex, input.value);
+            document.body.removeChild(input);
+        }
+    }
+
+    vertexInputContent(vertex) {
+        this.vertexInput(vertex, ((vertex, value) => { if (value) this.setVertexContent(vertex, value); }).bind(this));
+    }
+
+    vertexInputLabel(vertex) {
+        this.vertexInput(vertex, ((vertex, value) => { if (value) this.setVertexLabel(vertex, value); }).bind(this));
     }
 
     editValueOnClick() {
-        const self = this;
-        this.onVertexClick(function(vertex) {
-            const input = document.createElement("input");
-            input.type = "text";
-            input.style.position = 'fixed';
-            const [x, y] = self.vertexPosition[vertex];
-            const canvasRect = self.canvas.getBoundingClientRect();
-            input.style.textAlign = "center";
-            input.style.width = 30 + "px";
-            input.style.height = 20 + "px";
-            input.style.left = canvasRect.left + x - 18 + 'px';
-            input.style.top = canvasRect.top + y - 12 + 'px';
-            document.body.appendChild(input);
-            input.focus();
-            input.onblur = function() {
-                self.setVertexContent(vertex, input.value);
-                document.body.removeChild(input);
-            }
-        });
+        this.onVertexClick(this.vertexInputContent.bind(this));
     }
 
+    editValueOnDblClick() {
+        this.onVertexDblClick(this.vertexInputContent.bind(this));
+    }
+
+    editLabelOnClick() {
+        this.onVertexClick(this.vertexInputLabel.bind(this));
+    }
+
+    editLabelOnDblClick() {
+        this.onVertexDblClick(this.vertexInputLabel.bind(this));
+    }
+    
     setCSS() {
         this.CSS = {
             edge: {
                 width: 1,
                 color: "black",
-                curvature: 0
+                curvature: 0,
+                labelPosition: 0.5,
+                lineStyle: "solid",
+                show: true
             },
             
             vertex: {
                 color: "white",
                 size: 15,
+                width: 1,
+                borderColor: "black",
                 fontFamily: "Arial",
                 fontSize: "15px",
                 labelSize: "13px",
                 labelColor: "black",
-                labelBackground: false
+                labelBackgroundColor: null,
+                numerationStyle: "1",
+                show: true
             },
 
             focusEdge: {
