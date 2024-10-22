@@ -14,12 +14,17 @@ export class ArrayDisplay {
             this.indices = indices;
         this.createRows();
         this.pointers = {};
+        this.selected = new Array(this.arr.length).fill(false);
         this.show();
     }
 
-    setArray(arr) {
+    setArray(arr, indices) {
         this.arr = [...arr];
-        this.indices = [0, this.arr.length - 1];
+        this.selected = new Array(this.arr.length).fill(false);
+        if (indices == undefined)
+            this.indices = [0, this.arr.length - 1];
+        else
+            this.indices = indices;
         this.createRows();
         this.show();
     }
@@ -69,6 +74,7 @@ export class ArrayDisplay {
         this.table.append(this.trPointers);
         for (let i = min; i <= max; i++) {
             td = document.createElement("td");
+            td.style.textAlign = 'center';
             this.trPointers.appendChild(td);
         }
     }
@@ -129,6 +135,18 @@ export class ArrayDisplay {
             if (this.painter)
                 cell.style.backgroundColor = this.painter(this.arr, i);
         }
+
+        // show selected cells
+        for (let i = 0; i < this.arr.length; i++) {
+            const cell = this.valueCell(i);
+            if (cell == undefined)
+                continue;
+            if (this.selected[i])
+                cell.classList.add("selected");
+            else
+                cell.classList.remove("selected");
+        }
+        
 
         // min and max index
         const [min, max] = this.indices;
@@ -298,6 +316,11 @@ export class ArrayDisplay {
         this.valueCell(i).style[property] = value;
     }
 
+    setAllCSSProperty(property, value) {
+        for (let i = 0; i < this.length; i++)
+            this.setCSSProperty(i, property, value);
+    }
+
     containsCSSClass(i, cssClass) {
         return this.valueCell(i).classList.contains(cssClass);
     }
@@ -326,8 +349,16 @@ export class ArrayDisplay {
     }
 
     getInfoCell(i) {
+        if (!this.trInfo)
+            return null;
         const [min, max] = this.indices;
         return this.trInfo.getElementsByTagName("td")[i - min];
+    }
+
+    getInfo(i) {
+        if (!this.trInfo)
+            return undefined;
+        return this.getInfoCell(i).innerHTML;
     }
     
     setInfo(i, info) {
@@ -337,11 +368,12 @@ export class ArrayDisplay {
     }
 
     onValueEvent(event, handler) {
+        const [min, max] = this.indices;
         const row = this.trValues.cells;
         for (let i = 0; i < row.length; i++) {
             const cell = row[i];
             cell.addEventListener(event, function(e) {
-                handler(cell.innerHTML, i);
+                handler(cell.innerHTML, i + min);
             });
         }
     }
@@ -385,6 +417,38 @@ export class ArrayDisplay {
             }
         })
     }
+
+    toggleSelect(index) {
+        this.selected[index] = !this.selected[index];
+        this.show();
+    }
+
+    selectValueOnClick(additionalHandler) {
+        const self = this;
+        this.onValueClick((value, index) => {
+            self.toggleSelect(index);
+            if (additionalHandler)
+                additionalHandler(value, index);
+        });
+    }
+
+    isSelected(i) {
+        const [min, max] = this.indices;
+        console.log(this.selected, i, this.selected[i-min]);
+        return this.selected[i - min];
+    }
+
+    selectedValues() {
+        return this.selectedIndices().map(i => this.getValue(i));
+    }
+
+    selectedIndices() {
+        const selected = [];
+        for (let i = 0; i < this.selected.length; i++)
+            if (this.selected[i])
+                selected.push(i);
+        return selected;
+    }
 }
 
 export class CommandArraySetValue {
@@ -405,14 +469,15 @@ export class CommandArraySetValue {
 }
 
 export class CommandArraySet {
-    constructor(arrayDisplay, arr) {
+    constructor(arrayDisplay, arr, indices) {
         this.arrayDisplay = arrayDisplay;
         this.arr = arr;
+        this.indices = indices;
     }
 
     doCommand() {
         this.oldArr = this.arrayDisplay.arr;
-        this.arrayDisplay.setArray(this.arr);
+        this.arrayDisplay.setArray(this.arr, this.indices);
     }
 
     undoCommand() {
@@ -542,6 +607,23 @@ export class CommandArrayUnshift {
     }
 }
 
+export class CommandArraySetInfo {
+    constructor(arrayDisplay, i, info) {
+        this.arrayDisplay = arrayDisplay;
+        this.i = i;
+        this.info = info;
+    }
+    
+    doCommand() {
+        this.oldInfo = this.arrayDisplay.getInfo(this.i);
+        this.arrayDisplay.setInfo(this.i, this.info);
+    }
+
+    undoCommand() {
+        this.arrayDisplay.setInfo(this.i, this.oldInfo);
+    }
+}
+
 export class CommandArrayAddCSSClass {
     constructor(arrayDisplay, i, cssClass) {
         this.arrayDisplay = arrayDisplay;
@@ -593,6 +675,28 @@ export class CommandArraySetCSSProperty {
 
     undoCommand() {
         this.arrayDisplay.setCSSProperty(this.i, this.property, this.oldValue);
+    }
+}
+
+export class CommandArraySetAllCSSProperty {
+    constructor(arrayDisplay, property, value) {
+        this.arrayDisplay = arrayDisplay;
+        this.property = property;
+        this.value = value;
+    }
+
+    doCommand() {
+        this.oldValues = [];
+        for (let i = 0; i < this.arrayDisplay.length; i++) {
+            this.oldValues.push(this.arrayDisplay.getCSSProperty(i, this.property));
+            this.arrayDisplay.setCSSProperty(i, this.property, this.value);
+        }
+    }
+
+    undoCommand() {
+        for (let i = 0; i < this.arrayDisplay.length; i++) {
+            this.arrayDisplay.setCSSProperty(i, this.property, this.oldValues[i]);
+        }
     }
 }
 
@@ -683,10 +787,12 @@ export class CommandArrayResetAllPointers {
     }
 }
 
-import { Commands } from './commands.js';
+import { Commands, CommandSetElementContent } from './commands.js';
 
 export class ArrayCommands extends Commands {
     constructor(commands) {
         super(commands);
     }
 }
+
+export { CommandSetElementContent };

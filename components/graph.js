@@ -673,7 +673,14 @@ export class Graph {
                     break;
                 }
         }
+
+        const startChildren = dfsTree.filter(edge => {
+            const [from, to] = edge;
+            return from == start;
+        });
         
+        if (startChildren.length > 1)
+            aps.push(start);
         return aps;
     }
 

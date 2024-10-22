@@ -8,6 +8,21 @@ import 'highlight.js/styles/github.css';
 
 hljs.registerLanguage('javascript', javascript);
 
+export function highlightJS(code) {
+    return hljs.highlight(code, {language: 'javascript'}).value;
+}
+
+export function highlightJSMark(code, fromChar, toChar, CSSclasses) {
+    code = code.substring(0, fromChar) + 
+           '\n//mark\n' + 
+           code.substring(fromChar, toChar) + 
+           '\n//endmark\n' + 
+           code.substring(toChar);
+    const highlighted = highlightJS(code);
+    return highlighted.replace("\n<span class=\"hljs-comment\">//mark</span>\n", "<span class=\"" + CSSclasses.join(" ") + "\">").
+                       replace("\n<span class=\"hljs-comment\">//endmark</span>\n", "</span>");    
+}
+
 export { Commands };
 
 class CommandHighlight {
@@ -23,18 +38,10 @@ class CommandHighlight {
         this.oldContent = this.element.innerHTML;
         if (quick)
             return;
-        let text = this.element.textContent;
-        let css = this.cssClass;
+        let cssClasses = [this.cssClass];
         if (this.status != undefined)
-            css += " " + this.status;
-        text = text.substring(0, this.fromChar) + 
-               '\n//mark\n' + 
-               text.substring(this.fromChar, this.toChar) + 
-               '\n//endmark\n' + 
-               text.substring(this.toChar);
-        const highlightedText = hljs.highlight(text, {language: 'javascript'}).value
-        this.element.innerHTML = highlightedText.replace("\n<span class=\"hljs-comment\">//mark</span>\n", "<span class=\"" + css + "\">").
-                                                 replace("\n<span class=\"hljs-comment\">//endmark</span>\n", "</span>");
+            cssClasses.push(this.status);
+        this.element.innerHTML = highlightJSMark(this.element.textContent, this.fromChar, this.toChar, cssClasses);
     }
 
     undoCommand(quick) {
@@ -85,7 +92,9 @@ class CommandWatchNewArray {
         const tbl = document.createElement("table");
         tbl.classList.add("array");
         this.watch.append(tbl);
-        const display = new ArrayDisplay(new Array(length), tbl);
+        const display = this.length > 0 ? 
+                        new ArrayDisplay(new Array(length), tbl, [0, this.length]) :
+                        new ArrayDisplay(new Array(length), tbl);
         if (this.hideIndices)
             display.hideIndices();
         watches.set(this.name, {watch: this.watch, value: display});
@@ -210,15 +219,16 @@ class CommandWatchResetArrayValue {
 }
 
 class CommandWatchSetArray {
-    constructor(watches, arr, value) {
+    constructor(watches, arr, value, length) {
         this.watches = watches;
         this.arr = arr;
-        this.value = value; 
+        this.value = value;
+        this.length = length;
     }
 
     doCommand() {
         const watch = findWatch(this.watches, this.arr).value;
-        this.command = new CommandArraySet(watch, this.value);
+        this.command = new CommandArraySet(watch, this.value, this.length ? [0, this.length] : this.length);
         this.command.doCommand();
     }
 
@@ -314,6 +324,7 @@ export class Debugger {
         this.skipVariables = undefined;
         this.breakpointChar = 0;
         this.hideIndicesArrays = new Set();
+        this.arrayLength = new Map();
 
         const highlightedCode = hljs.highlight(code, { language: 'javascript' }).value;
         this.codeElement.innerHTML = highlightedCode;        
@@ -338,6 +349,10 @@ export class Debugger {
         this.pointers.set(variable, array);
     }
 
+    setArrayLength(variable, length) {
+        this.arrayLength.set(variable, length);
+    }
+
     skipVariable(variable) {
         if (this.skipVariables == undefined)
             this.skipVariables = new Set();
@@ -355,6 +370,8 @@ export class Debugger {
     newArray(arr, length=0) {
         if (this.shouldSkip(arr))
             return;
+        if (this.arrayLength.has(arr))
+            length = this.arrayLength.get(arr);
         this.stepCommands.push(new CommandWatchNewArray(this.watches, this.container, arr, length, this.hideIndicesArrays.has(arr)));
     }
     
@@ -382,7 +399,7 @@ export class Debugger {
     setArray(arr, value) {
         if (this.shouldSkip(arr))
             return;
-        this.stepCommands.push(new CommandWatchSetArray(this.watches, arr, value));
+        this.stepCommands.push(new CommandWatchSetArray(this.watches, arr, value, this.arrayLength.get(arr)));
     }
 
     setArrayValue(arr, index, value) {
@@ -455,7 +472,6 @@ export class Interpreter {
     static Parse(program) {
         return parse(program, {ecmaVersion: 2020}).body
     }
-
     
     constructor() {
         this.scopes = [new Map()];
@@ -585,7 +601,9 @@ export class Interpreter {
 
     visitCallExpression(node) {
         this.startStatement(node);
-        
+
+        console.log(node.arguments)
+        console.log(this.scopes)
         const _arguments = [];
         for (const nodeArg of node.arguments)
             _arguments.push(this.visitNode(nodeArg))
@@ -594,6 +612,9 @@ export class Interpreter {
             const callee = this.visitIdentifier(node.callee)
             if (callee == "print")
                 console.log(..._arguments)
+            else if (callee == "swap") {
+                console.log(..._arguments);
+            }
         } else if (node.callee.type == "MemberExpression") {
             const object = node.callee.object.name;
             const property = node.callee.property.name;
