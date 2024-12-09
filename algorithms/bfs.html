@@ -34,8 +34,8 @@
     <script src="../dist/Graph.js"></script>
     <script>
       const canvas = document.getElementById("graph");
-      const graph = new Graph.Graph(8, false);
-      graph.randomGraph();
+      const graph = new Graph.Graph(false, 8);
+      graph.randomGraph(8, 16);
       const graphDrawing = new Graph.GraphDrawing(graph, canvas);
       const w = graphDrawing.canvas.width(), h = graphDrawing.canvas.height();
       k = 0.1
